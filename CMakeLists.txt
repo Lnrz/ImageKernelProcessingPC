@@ -15,3 +15,9 @@ add_subdirectory(lib/highway-1.3.0 EXCLUDE_FROM_ALL)
 
 target_link_libraries(ImageKernelProcessing PRIVATE hwy)
 target_include_directories(ImageKernelProcessing PRIVATE lib/stb_image)
+
+set(is_release "$<CONFIG:Release>")
+set(is_msvc "$<CXX_COMPILER_ID:MSVC>")
+
+target_compile_options(ImageKernelProcessing PRIVATE
+    $<$<AND:${is_release},${is_msvc}>:/O2 /Ob3 /fp:fast /arch:AVX2 /Gv /favor:INTEL64>)
