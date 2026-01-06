@@ -11,7 +11,7 @@ void kernelConvolution(const ConvolutionData &data) {
     const size_t vectorsInRow{ data.rowSize / vectorLength };
     const size_t remainingChannels{ data.rowSize - vectorsInRow * vectorLength };
     const auto kernelSize{ 2 * data.halfSize + 1 };
-    const auto paddedRowSize{ data.rowSize + 2 * data.halfSize };
+    const auto paddedRowSize{ data.rowSize + 2 * data.halfSize * data.channels };
 
     for (int row{ data.halfSize }; row < data.rowNum + data.halfSize; row++) {
         for (size_t vector{ 0 }; vector < vectorsInRow; vector++) {

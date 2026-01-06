@@ -5,8 +5,8 @@ struct ConvolutionData {
     const float* inPtr{ nullptr };
     const float* coefPtr{ nullptr };
     float* outPtr{ nullptr };
-    size_t rowSize{ 0 };
-    size_t rowNum{ 0 };
+    int rowSize{ 0 };
+    int rowNum{ 0 };
     int channels{ -1 };
     int halfSize{ -1 };
 };
