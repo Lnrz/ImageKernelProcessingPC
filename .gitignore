@@ -1,0 +1,4 @@
+/.idea/*
+
+/lib/*
+!/lib/stb_image/
