@@ -16,7 +16,7 @@ void kernelConvolution(const ConvolutionData &data) {
     for (int row{ data.halfSize }; row < data.rowNum + data.halfSize; row++) {
         for (size_t vector{ 0 }; vector < vectorsInRow; vector++) {
             V accum{ Set(d, 0) };
-            for (int i{ -data.halfSize }; i < data.halfSize; i++) {
+            for (int i{ -data.halfSize }; i <= data.halfSize; i++) {
                 for (int j{ 0 }; j < kernelSize; j++) {
                     const V pixelData{ Load(d, data.inPtr
                         + vector * vectorLength

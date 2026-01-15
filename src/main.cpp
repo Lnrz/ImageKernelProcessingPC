@@ -1,12 +1,10 @@
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
-#include <iostream>
 #include <ranges>
 #include "image.h"
 #include "taskLoader.h"
 #include "convolution.h"
+#include "utilities.h"
 
 struct TaskData {
     std::shared_ptr<Image> inImage{};
@@ -43,31 +41,6 @@ void updateTaskData(const Task&  task, const int halfSize, TaskData& data) {
     const auto outImageSize{ outImageHeight * outImageWidth * outImageChannels };
     if (data.outFloatImage.size() != outImageSize) data.outFloatImage.resize(outImageSize);
     if (data.outUIntImage.size() != outImageSize) data.outUIntImage.resize(outImageSize);
-}
-
-[[noreturn]]
-void explainProgram() {
-    std::cout << R"(Program usage:
-ImageKernelProcessing.exe inputFolder outputFolder
-
-inputFolder:
-    path to the folder containing the images to process and a tasks.txt file
-outputFolder:
-    path to the folder where to write the output images
-
-The tasks.txt file contains the tasks specified as lines in the following format:
-IMAGE image1 filter1_1:padding1_1
-IMAGE image2 filter2_1:padding2_1 filter2_2:padding2_2
-...
-
-image is the name of the image to process, contained in the inputFolder
-filter is the filter to apply to the image
-padding is the padding to apply to the image
-It is possible to specify more filters and paddings for the same image by separating them with a whitespace
-
-
-)";
-    exit(-1);
 }
 
 int main(int argc, char* argv[]) {

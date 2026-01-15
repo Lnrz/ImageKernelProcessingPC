@@ -1,8 +1,7 @@
 #include "image.h"
-
-#include <iostream>
 #include <ranges>
 #include <type_traits>
+#define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 
@@ -19,6 +18,12 @@ FilterType getFilterTypeFromString(const std::string& string) {
         filter = FilterType::LaPlace3_8;
     } else if (string == "Sharp3") {
         filter = FilterType::Sharp3;
+    } else if (string == "LoG5") {
+        filter = FilterType::LoG5;
+    } else if (string == "LoG9") {
+        filter = FilterType::LoG9;
+    } else if (string == "EmbossUp3") {
+        filter = FilterType::EmbossUp3;
     } else {
         std::cerr << "Unknown filter type: " << string << std::endl;
         exit(-1);
@@ -51,6 +56,18 @@ std::string getStringFromFilterType(FilterType filterType) {
             res = "Sharp3";
             break;
         }
+        case FilterType::LoG5: {
+            res = "LoG5";
+            break;
+        }
+        case FilterType::LoG9: {
+            res = "LoG9";
+            break;
+        }
+        case FilterType::EmbossUp3: {
+            res = "EmbossUp3";
+            break;
+        }
         default: {
             std::cerr << "Unknown filter type: " << static_cast<FilterTypeInt>(filterType) << std::endl;
             exit(-1);
@@ -58,58 +75,6 @@ std::string getStringFromFilterType(FilterType filterType) {
     }
 
     return res;
-}
-
-Filter::Filter(FilterType type)
-    : type{ type } {
-    switch (type) {
-        case FilterType::BoxBlur3: {
-            halfSize = 1;
-            data = std::vector( 9, 1.f/9.f);
-            break;
-        }
-        case FilterType::GaussBlur3: {
-            halfSize = 1;
-            data = {
-                1.f/16.f, 2.f/16.f, 1.f/16.f,
-                2.f/16.f, 4.f/16.f, 2.f/16.f,
-                1.f/16.f, 2.f/16.f, 1.f/16.f
-            };
-            break;
-        }
-        case FilterType::LaPlace3_4: {
-            halfSize = 1;
-            data = {
-                0.f, 1.f, 0.f,
-                1.f, -4.f, 1.f,
-                0.f, 1.f, 0.f
-            };
-            break;
-        }
-        case FilterType::LaPlace3_8: {
-            halfSize = 1;
-            data = {
-                1.f, 1.f, 1.f,
-                1.f, -8.f, 1.f,
-                1.f, 1.f, 1.f
-            };
-            break;
-        }
-        case FilterType::Sharp3: {
-            halfSize = 1;
-            data = {
-                0.f, -1.f, 0.f,
-                -1.f, 5.f, -1.f,
-                0.f, -1.f, 0.f
-            };
-            break;
-        }
-        default: {
-            std::cerr << "Filter type: " << static_cast<std::underlying_type_t<FilterType>>(type)
-                    << " still not implemented" << std::endl;
-            exit(-1);
-        }
-    }
 }
 
 std::vector<Filter> getFilters() {
@@ -279,17 +244,3 @@ int PaddedImage::getHeight() const { return height; }
 int PaddedImage::getPaddedHeight() const { return paddedHeight; }
 
 int PaddedImage::getChannels() const { return channels; }
-
-void floatImageToUIntImage(const std::vector<float>& from, std::vector<uint8_t>& to) {
-    std::ranges::copy(
-        from | std::views::transform(
-            [](const float x) {
-                const auto gammaCorrectedValue{ std::powf(x, 1/2.2f) };
-                const auto scaledValue{ 255 * gammaCorrectedValue };
-                const auto clampedValue{ std::clamp(scaledValue, 0.f, 255.f) };
-                const auto roundedValue{ std::roundf(clampedValue) };
-                return static_cast<uint8_t>(roundedValue);
-            }
-        ), to.begin()
-    );
-}
