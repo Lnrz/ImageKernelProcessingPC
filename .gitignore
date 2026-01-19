@@ -1,4 +1,3 @@
 /.idea/*
 
-/lib/*
-!/lib/stb_image/
+cpuConvolution/lib/highway-1.3.0

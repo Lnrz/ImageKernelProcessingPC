@@ -1,5 +1,4 @@
 #include <cuda_runtime.h>
-#include <syncstream>
 #include "convolution.cuh"
 #include "image.h"
 #include "taskLoader.cuh"

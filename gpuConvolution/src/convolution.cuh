@@ -2,7 +2,6 @@
 #define IMAGEKERNELPROCESSINGCUDA_CONVOLUTION_CUH
 
 #include "image.h"
-#include <thrust/device_vector.h>
 
 extern __constant__ float deviceFilters[getFiltersSize()];
 
