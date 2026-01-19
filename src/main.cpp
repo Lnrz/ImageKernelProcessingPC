@@ -1,10 +1,9 @@
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb_image_write.h>
 #include <ranges>
 #include "image.h"
 #include "taskLoader.h"
 #include "convolution.h"
 #include "utilities.h"
+#include "timer.h"
 
 struct TaskData {
     std::shared_ptr<Image> inImage{};
@@ -45,7 +44,11 @@ void updateTaskData(const Task&  task, const int halfSize, TaskData& data) {
 
 int main(int argc, char* argv[]) {
     if (argc < 3) explainProgram();
-    auto [images, tasks ] = loadTasks(argv[1]);
+    auto [
+        images,
+        tasks,
+        enableStats
+    ] = loadTasks(argv[1]);
     const std::filesystem::path outputFolder{ argv[2] };
     const auto filters{ getFilters() };
 
@@ -59,11 +62,16 @@ int main(int argc, char* argv[]) {
     );
 
     TaskData taskData{};
-    for (const auto& task : tasks) {
+    const auto tasksCount{ tasks.size() };
+    Timer timer{ enableStats? tasksCount : 0, getCPULanes() };
+    if (enableStats) timer.startingProgram();
+    for (int i{ 1 }; const auto& task : tasks) {
         const auto& filter{ filters[static_cast<FilterTypeInt>(task.filter)] };
 
+        if (enableStats) timer.startingImageLoading();
         updateTaskData(task, filter.halfSize, taskData);
         const auto imageChannels{ taskData.inImage->getChannels() };
+        if (enableStats) timer.startingImageConvolution();
         kernelConvolution({
             .inPtr = (taskData.padding == PaddingMode::None) ?
                 taskData.inImage->data() : taskData.inPaddedImage.data(),
@@ -74,14 +82,22 @@ int main(int argc, char* argv[]) {
             .channels = imageChannels,
             .halfSize = taskData.halfSize
         });
+        if (enableStats) timer.imageConvolutionEnded();
         floatImageToUIntImage(taskData.outFloatImage, taskData.outUIntImage);
-        auto outImagePath{ outputFolder / taskData.inImage->getPath().stem() };
-        outImagePath += "-" + getStringFromFilterType(task.filter)
-                      + "-" + getStringFromPaddingMode(task.padding) + ".jpg";
-        stbi_write_jpg(outImagePath.string().c_str()
+        writeImage((outputFolder / taskData.inImage->getPath().stem()).string()
+            + "-" + getStringFromFilterType(task.filter)
+            + "-" + getStringFromPaddingMode(task.padding) + ".jpg"
             ,taskData.rowSize / imageChannels, taskData.rowNum, imageChannels
-            , taskData.outUIntImage.data(), 100);
+            , taskData.outUIntImage.data());
+        if (enableStats) timer.imageWritten();
+        std::cout << i << "/" << tasksCount << " images processed\r" << std::flush;
+        i++;
     }
+    if (enableStats) {
+        timer.endingProgram();
+        timer.writeLog(outputFolder / "log.txt");
+    }
+    std::cout << std::endl;
 
     return 0;
 }

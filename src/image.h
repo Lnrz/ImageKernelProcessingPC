@@ -229,4 +229,6 @@ void floatImageToUIntImage(Ri&& from, Ro&& to) {
     );
 }
 
+void writeImage(const std::string& path, int width,  int height, int channels, const uint8_t* data);
+
 #endif //IMAGEKERNELPROCESSING_IMAGE_H

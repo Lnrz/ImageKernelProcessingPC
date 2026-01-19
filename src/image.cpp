@@ -3,6 +3,8 @@
 #include <type_traits>
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
 
 
 FilterType getFilterTypeFromString(const std::string& string) {
@@ -244,3 +246,7 @@ int PaddedImage::getHeight() const { return height; }
 int PaddedImage::getPaddedHeight() const { return paddedHeight; }
 
 int PaddedImage::getChannels() const { return channels; }
+
+void writeImage(const std::string& path, const int width, const int height, const int channels, const uint8_t* data) {
+    stbi_write_jpg(path.c_str(), width, height, channels, data, 100);
+}

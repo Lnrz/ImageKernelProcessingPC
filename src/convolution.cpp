@@ -1,6 +1,13 @@
 #include "convolution.h"
 #include <hwy/highway.h>
 
+size_t getCPULanes() {
+    using namespace hwy::HWY_NAMESPACE;
+    using D = ScalableTag<float>;
+
+    return Lanes(D{});
+}
+
 void kernelConvolution(const ConvolutionData &data) {
     using namespace hwy::HWY_NAMESPACE;
     using D = ScalableTag<float>;

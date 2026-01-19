@@ -6,16 +6,21 @@
 
 extern __constant__ float deviceFilters[getFiltersSize()];
 
-void updateFilters(const float* data);
-
 struct CudaConvolutionData {
     float *input{}, *output{};
-    int inputImageWidth{};
+    int inputImageRowSize{};
     int inputImageHeight{};
     int channels{};
+    int outputImageRowSize{};
+    int outputImageHeight{};
+    PaddingMode padding{ PaddingMode::Invalid };
     int filterOffset{};
     int halfSize{};
-    PaddingMode padding{ PaddingMode::Invalid };
+    int kernelSize{};
+    int cacheRowSize{};
+    int cacheHeight{};
+    int channelsPerLoad{};
+    int loadingSteps{};
 };
 
 __global__ void cudaKernelConvolution(CudaConvolutionData data);

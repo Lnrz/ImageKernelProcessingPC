@@ -1,10 +1,17 @@
-#include "utilities.h"
+#include "utilities.cuh"
 #include <iostream>
+
+void checkCUDAError(const cudaError_t error, const std::string_view msg) {
+    if (error == cudaSuccess) return;
+    std::cout << msg << std::endl;
+    std::cout << ">" << cudaGetErrorString(error) << std::endl;
+    exit(-1);
+}
 
 [[noreturn]]
 void explainProgram() {
     std::cout << R"(Program usage:
-ImageKernelProcessing.exe inputFolder outputFolder
+ImageKernelProcessingCuda.exe inputFolder outputFolder
 
 inputFolder:
     path to the folder containing the images to process and a tasks.txt file
@@ -20,6 +27,18 @@ image is the name of the image to process, contained in the inputFolder
 filter is the filter to apply to the image
 padding is the padding to apply to the image
 It is possible to specify more filters and paddings for the same image by separating them with a whitespace
+
+The block size with which to process images can be specified in tasks.txt with:
+BLOCK x y
+By default it is (32,16)
+
+The number of slots of the GPU input and output buffers can be specified in tasks.txt with:
+SLOTS inNum outNum
+By default they both have 2 slots
+
+WARNING
+Every slot is as big as the largest image.
+Therefore it's advised to process images of roughly the same size together in order not to waste GPU memory.
 
 To activate statistics write in tasks.txt the line:
 STATS

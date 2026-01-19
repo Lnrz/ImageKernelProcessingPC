@@ -1,169 +1,110 @@
 #include <cuda_runtime.h>
-#include <thrust/host_vector.h>
-#include <thrust/device_vector.h>
-#include <array>
+#include <syncstream>
 #include "convolution.cuh"
 #include "image.h"
-#include "taskLoader.h"
-#include "utilities.h"
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include "taskLoader.cuh"
+#include "utilities.cuh"
+#include "buffer.cuh"
+#include "timer.cuh"
+#include "stream.cuh"
 
-struct OutputImageInfo {
-    int width{};
-    int height{};
-    int channels{};
-    std::filesystem::path inputImageName{};
-    PaddingMode padding{};
-    FilterType filter{};
-};
+
+void loadFiltersToConstantMemory(const std::vector<Filter>& filters) {
+    std::vector<float> filtersData;
+    filtersData.reserve(getFiltersSize());
+    for (const auto& filter : filters) {
+        filtersData.insert(filtersData.cend(), filter.data.begin(), filter.data.end());
+    }
+    cudaMemcpyToSymbol(deviceFilters, filtersData.data(), getFiltersSize() * sizeof(float));
+}
+
+std::vector<int> getFiltersOffsets(const std::vector<Filter>& filters) {
+    std::vector<int> offsets{ 0 };
+    constexpr auto filtersNum{ static_cast<FilterTypeInt>(FilterType::Num) };
+    offsets.reserve(filtersNum);
+
+    for (const auto& filter : filters) {
+        offsets.push_back(offsets.back() + static_cast<int>(filter.data.size()));
+        if (offsets.size() == filtersNum) break;
+    }
+
+    return offsets;
+}
+
 
 int main(int argc ,char* argv[]) {
     if (argc < 3) explainProgram();
     const std::filesystem::path outputFolder{ argv[2] };
+    auto [
+        images,
+        tasks,
+        blockSize,
+        inputSlots,
+        outputSlots,
+        enableStats
+    ] = loadTasks(argv[1]);
 
-    auto [images, tasks ] = loadTasks(argv[1]);
     std::ranges::sort(tasks,
         [](const Task& t1, const Task& t2) {
             return t1.image->getPath() < t2.image->getPath();
         }
     );
 
-    // put filters data into constant memory
     const auto filters{ getFilters() };
-    std::vector<float> filtersData;
-    filtersData.reserve(getFiltersSize());
-    std::vector<size_t> filtersOffsets;
-    filtersOffsets.reserve(static_cast<FilterTypeInt>(FilterType::Num));
-    filtersOffsets.push_back(0);
-    for (const auto& filter : getFilters()) {
-        filtersData.insert(filtersData.cend(), filter.data.begin(), filter.data.end());
-        if (filtersOffsets.size() != static_cast<FilterTypeInt>(FilterType::Num)) {
-            filtersOffsets.push_back(filtersOffsets.back() + filter.data.size());
-        }
-    }
-    updateFilters(filtersData.data());
+    loadFiltersToConstantMemory(filters);
+    const auto filtersOffsets{ getFiltersOffsets(filters) };
 
-    // make buffers
-    size_t biggestImageSize{};
-    for (const auto& image : images | std::views::values) {
-        size_t imageSize{ static_cast<size_t>(image->getWidth() * image->getHeight() * image->getChannels()) };
-        if (imageSize > biggestImageSize) {
-            biggestImageSize = imageSize;
-        }
+    cudaStream_t hostDeviceStream, convolutionStream, deviceHostStream;
+    for (auto stream : { &hostDeviceStream, &convolutionStream, &deviceHostStream }) {
+        checkCUDAError(cudaStreamCreateWithFlags(stream, cudaStreamNonBlocking),
+            "An error has occurred while initializing the streams");
     }
-    thrust::host_vector<float> hostFloatBuffer{ biggestImageSize, thrust::no_init };
-    thrust::host_vector<uint8_t> hostUIntBuffer{ biggestImageSize, thrust::no_init };
-    std::array deviceInputBuffers{
-        thrust::device_vector<float>{ biggestImageSize, thrust::no_init },
-        thrust::device_vector<float>{ biggestImageSize, thrust::no_init }
-    };
-    std::array deviceOutputBuffers{
-        thrust::device_vector<float>{ biggestImageSize, thrust::no_init },
-        thrust::device_vector<float>{ biggestImageSize, thrust::no_init }
-    };
-    constexpr uint32_t buffersNum{ deviceInputBuffers.size() };
-    OutputImageInfo outputImageInfos[buffersNum];
-    uint32_t inputBufferIndex{}, outputBufferIndex{};
 
-    std::shared_ptr<Image> lastImage{};
-    bool isFirstTask{ true };
+    const size_t slotSizeInBytes{
+        std::ranges::max(images | std::views::values | std::views::transform(
+            [](const std::shared_ptr<Image>& image) {
+                    return static_cast<size_t>(image->getWidth() * image->getHeight() * image->getChannels()) * sizeof(float);
+                }
+    ))};
+    const size_t slotSizeInChannels{ slotSizeInBytes / sizeof(float) };
+
+    void* pageLockedBasePtr{ nullptr };
+    constexpr size_t pageLockedSlots{ 2 };
+    checkCUDAError(cudaMallocHost(&pageLockedBasePtr, pageLockedSlots * slotSizeInBytes), "An error has occurred while allocating page locked host memory");
+    auto stagingSlotPtr{ static_cast<float*>(pageLockedBasePtr) };
+    auto writingSlotPtr{ static_cast<float*>(pageLockedBasePtr) + slotSizeInChannels };
+    std::vector<uint8_t> uintImage(slotSizeInChannels);
+
+    void* buffersBasePtr{ nullptr };
+    checkCUDAError(cudaMalloc(&buffersBasePtr, slotSizeInBytes * (inputSlots + outputSlots)), "An error has occurred while allocating device memory");
+    InputBuffer inputBuffer{ static_cast<float*>(buffersBasePtr), inputSlots, slotSizeInChannels };
+    OutputBuffer outputBuffer{ static_cast<float*>(buffersBasePtr) + inputSlots * slotSizeInChannels, outputSlots, slotSizeInChannels };
+
+    const int tasksCount{ static_cast<int>(tasks.size()) };
+    CudaTimer timer{ tasks.size(), enableStats, blockSize, inputSlots, outputSlots };
+    timer.startingProgram();
     for (const auto& task : tasks) {
-        if (task.image != lastImage) {
-            lastImage = task.image;
-            task.image->load();
-            inputBufferIndex = (inputBufferIndex + 1) % buffersNum;
-            deviceInputBuffers[inputBufferIndex].clear();
-            deviceInputBuffers[inputBufferIndex].assign(task.image->data()
-                , task.image->data() + task.image->getWidth() * task.image->getHeight() * task.image->getChannels());
+        const bool wasImageLoaded{ inputBuffer.isImageLoaded(task.image) };
+        if (!wasImageLoaded) {
+            loadImageToGPU(hostDeviceStream, inputBuffer, task.image, stagingSlotPtr, timer);
         }
-        outputBufferIndex = (outputBufferIndex + 1) % buffersNum;
-        outputImageInfos[outputBufferIndex] = {
-            .width = (task.padding == PaddingMode::None) ?
-                        task.image->getWidth() - 2 * filters[static_cast<FilterTypeInt>(task.filter)].halfSize :
-                        task.image->getWidth(),
-            .height = (task.padding == PaddingMode::None) ?
-                        task.image->getHeight() - 2 * filters[static_cast<FilterTypeInt>(task.filter)].halfSize :
-                        task.image->getHeight(),
-            .channels = task.image->getChannels(),
-            .inputImageName = task.image->getPath().stem(),
-            .padding = task.padding,
-            .filter = task.filter
-        };
-        deviceOutputBuffers[outputBufferIndex].resize(outputImageInfos[outputBufferIndex].width *
-            outputImageInfos[outputBufferIndex].height * outputImageInfos[outputBufferIndex].channels);
-
-        cudaDeviceSynchronize();
-
-        // launch kernel
-        constexpr dim3 blockDim{ 32, 32 };
-        const dim3 gridDim{ (outputImageInfos[outputBufferIndex].width * task.image->getChannels() + blockDim.x - 1) / blockDim.x,
-                            (outputImageInfos[outputBufferIndex].height + blockDim.y - 1) / blockDim.y };
-        const auto halfSize{ filters[static_cast<FilterTypeInt>(task.filter)].halfSize };
-        const size_t sharedMemorySize{ (blockDim.x + 2 * halfSize * task.image->getChannels()) * (blockDim.y + 2 * halfSize) * sizeof(float) };
-        cudaKernelConvolution<<<gridDim, blockDim, sharedMemorySize>>>({
-            .input = thrust::raw_pointer_cast(deviceInputBuffers[inputBufferIndex].data()),
-            .output = thrust::raw_pointer_cast(deviceOutputBuffers[outputBufferIndex].data()),
-            .inputImageWidth = task.image->getWidth(),
-            .inputImageHeight = task.image->getHeight(),
-            .channels = task.image->getChannels(),
-            .filterOffset = static_cast<int>(filtersOffsets[static_cast<FilterTypeInt>(task.filter)]),
-            .halfSize = halfSize,
-            .padding = task.padding
-        });
-
-        task.image->unload();
-        if (isFirstTask) {
-            isFirstTask = false;
-            continue;
-        }
-
-        // prepare to output
-        hostFloatBuffer.clear();
-        hostUIntBuffer.clear();
-
-
-        const auto bufferToSaveIndex { (outputBufferIndex - 1) % buffersNum };
-        hostFloatBuffer.assign(deviceOutputBuffers[bufferToSaveIndex].begin()
-                             , deviceOutputBuffers[bufferToSaveIndex].end());
-
-
-        // convert to uint
-        floatImageToUIntImage(hostFloatBuffer, hostUIntBuffer);
-
-        // save
-        const auto& outputImageInfo{ outputImageInfos[bufferToSaveIndex] };
-
-
-        auto outImagePath{ outputFolder / outputImageInfo.inputImageName };
-        outImagePath += "-" + getStringFromFilterType(outputImageInfo.filter)
-                      + "-" + getStringFromPaddingMode(outputImageInfo.padding) + ".jpg";
-        stbi_write_jpg(outImagePath.string().c_str(),
-            outputImageInfo.width, outputImageInfo.height, outputImageInfo.channels,
-            hostUIntBuffer.data(), 100);
+        auto& inputSlot{ inputBuffer.getImageSlot(task.image) };
+        auto& outputSlot{ outputBuffer.getAvailableSlot() };
+        const auto taskInfo{ getDetailedTaskInfo(task, filters, filtersOffsets, outputFolder, tasksCount) };
+        if (wasImageLoaded) timer.startLoadingImageEvent(convolutionStream);
+        convoluteImage(convolutionStream, inputSlot, outputSlot, blockSize, taskInfo, timer);
+        writeImage(deviceHostStream, outputSlot, taskInfo, writingSlotPtr, uintImage.data(), timer);
     }
-    // prepare to output
-    hostFloatBuffer.clear();
-    hostUIntBuffer.clear();
-    const auto bufferToSaveIndex { outputBufferIndex };
 
-    cudaDeviceSynchronize();
-
-    hostFloatBuffer.assign(deviceOutputBuffers[bufferToSaveIndex].begin()
-                         , deviceOutputBuffers[bufferToSaveIndex].end());
-
-    // convert to uint
-    floatImageToUIntImage(hostFloatBuffer, hostUIntBuffer);
-
-    // save
-    const auto& outputImageInfo{ outputImageInfos[bufferToSaveIndex] };
-
-    auto outImagePath{ outputFolder / outputImageInfo.inputImageName };
-    outImagePath += "-" + getStringFromFilterType(outputImageInfo.filter)
-                  + "-" + getStringFromPaddingMode(outputImageInfo.padding) + ".jpg";
-    stbi_write_jpg(outImagePath.string().c_str(),
-            outputImageInfo.width, outputImageInfo.height, outputImageInfo.channels,
-            hostUIntBuffer.data(), 100);
+    checkCUDAError(cudaDeviceSynchronize(), "An error occurred while waiting for the device to finish");
+    timer.endingProgram();
+    timer.writeLog(outputFolder / "log.txt");
+    std::cout << std::endl;
+    for (auto stream : { hostDeviceStream, convolutionStream, deviceHostStream }) {
+        cudaStreamDestroy(stream);
+    }
+    cudaFreeHost(pageLockedBasePtr);
+    cudaFree(buffersBasePtr);
 
     return 0;
 }

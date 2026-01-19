@@ -13,21 +13,30 @@ add_executable(ImageKernelProcessing src/main.cpp
         src/convolution.cpp
         src/convolution.h
         src/utilities.cpp
-        src/utilities.h)
+        src/utilities.h
+        src/timer.cpp
+        src/timer.h)
 
 add_executable(ImageKernelProcessingCuda src/mainCuda.cu
-        src/utilities.cpp
-        src/utilities.h
         src/image.h
         src/image.cpp
-        src/taskLoader.cpp
-        src/taskLoader.h
         src/convolution.cu
-        src/convolution.cuh)
+        src/convolution.cuh
+        src/buffer.cu
+        src/buffer.cuh
+        src/utilities.cu
+        src/utilities.cuh
+        src/taskLoader.cu
+        src/taskLoader.cuh
+        src/timer.cu
+        src/timer.cuh
+        src/stream.cu
+        src/stream.cuh)
 
 set_target_properties(ImageKernelProcessingCuda
         PROPERTIES
-        CUDA_SEPARABLE_COMPILATION ON)
+        CUDA_SEPARABLE_COMPILATION ON
+        CUDA_ARCHITECTURES native)
 
 add_subdirectory(lib/highway-1.3.0 EXCLUDE_FROM_ALL)
 
@@ -44,5 +53,10 @@ target_compile_options(ImageKernelProcessing PRIVATE
     $<$<AND:${is_release},${is_msvc}>:/O2 /Ob3 /fp:fast /arch:AVX2 /Gv /favor:INTEL64>)
 
 target_compile_options(ImageKernelProcessingCuda PRIVATE
-    $<${is_cuda}:--extended-lambda -rdc=true -arch=native>
-    $<$<AND:${is_cuda},${is_msvc}>:-Xcompiler "/Zc:preprocessor /Zc:__cplusplus">)
+    $<${is_cuda}:-rdc=true -dlto -restrict -lineinfo -src-in-ptx>
+    $<$<AND:${is_cuda},${is_msvc}>:-Xcompiler=/Zc:preprocessor>
+    $<$<AND:${is_cuda},${is_release}>:--use_fast_math --extra-device-vectorization>
+    $<$<AND:${is_cuda},${is_release},${is_msvc}>:-Xcompiler=/O2,/Ob3,/fp:fast,/arch:AVX2,/favor:INTEL64>)
+
+target_link_options(ImageKernelProcessingCuda PRIVATE
+    $<DEVICE_LINK:-dlto>)
