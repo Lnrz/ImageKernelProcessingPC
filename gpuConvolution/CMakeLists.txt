@@ -19,6 +19,10 @@ set_target_properties(gpuKernelConvolution
         CUDA_SEPARABLE_COMPILATION ON
         CUDA_ARCHITECTURES native)
 
+find_package(CUDAToolkit REQUIRED)
+target_link_libraries(gpuKernelConvolution
+        PRIVATE CUDA::cuda_driver)
+
 target_include_directories(gpuKernelConvolution
         PRIVATE ../common)
 

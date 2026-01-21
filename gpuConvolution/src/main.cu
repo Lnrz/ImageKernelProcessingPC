@@ -1,4 +1,6 @@
+#include <cuda.h>
 #include <cuda_runtime.h>
+#include <thread>
 #include "convolution.cuh"
 #include "image.h"
 #include "taskLoader.cuh"
@@ -69,15 +71,33 @@ int main(int argc ,char* argv[]) {
 
     void* pageLockedBasePtr{ nullptr };
     constexpr size_t pageLockedSlots{ 2 };
-    checkCUDAError(cudaMallocHost(&pageLockedBasePtr, pageLockedSlots * slotSizeInBytes), "An error has occurred while allocating page locked host memory");
+    constexpr size_t flagsNum{ 2 };
+    constexpr size_t flagSize{ 4 };
+    checkCUDAError(cudaMallocHost(&pageLockedBasePtr, pageLockedSlots * slotSizeInBytes + flagsNum * flagSize)
+        , "An error has occurred while allocating page locked host memory");
     auto stagingSlotPtr{ static_cast<float*>(pageLockedBasePtr) };
     auto writingSlotPtr{ static_cast<float*>(pageLockedBasePtr) + slotSizeInChannels };
+    auto loadFlagPtr{ static_cast<uint32_t *>(pageLockedBasePtr) + pageLockedSlots * slotSizeInChannels };
+    auto writeFlagPtr{ static_cast<uint32_t *>(pageLockedBasePtr) + pageLockedSlots * slotSizeInChannels + 1 };
+    *loadFlagPtr = LoadFlag_Empty;
+    *writeFlagPtr = WriteFlag_Empty;
+    CUdeviceptr deviceLoadFlagPtr, deviceWriteFlagPtr;
+    cuMemHostGetDevicePointer(&deviceLoadFlagPtr, loadFlagPtr, 0);
+    cuMemHostGetDevicePointer(&deviceWriteFlagPtr, writeFlagPtr, 0);
     std::vector<uint8_t> uintImage(slotSizeInChannels);
 
     void* buffersBasePtr{ nullptr };
-    checkCUDAError(cudaMalloc(&buffersBasePtr, slotSizeInBytes * (inputSlots + outputSlots)), "An error has occurred while allocating device memory");
+    checkCUDAError(cudaMalloc(&buffersBasePtr, slotSizeInBytes * (inputSlots + outputSlots)),
+        "An error has occurred while allocating device memory");
     InputBuffer inputBuffer{ static_cast<float*>(buffersBasePtr), inputSlots, slotSizeInChannels };
     OutputBuffer outputBuffer{ static_cast<float*>(buffersBasePtr) + inputSlots * slotSizeInChannels, outputSlots, slotSizeInChannels };
+
+    std::vector<std::shared_ptr<Image>> imagesToLoad;
+    std::ranges::unique_copy(images | std::views::values, std::back_inserter(imagesToLoad));
+    std::jthread imageLoaderThread{ loadImagesToStagingBuffer,
+        stagingSlotPtr, loadFlagPtr, std::cref(imagesToLoad) };
+    std::jthread imageWriterThread{ writeImagesToDisk,
+        writingSlotPtr, uintImage.data(), writeFlagPtr, std::cref(tasks), std::cref(filters), std::cref(outputFolder) };
 
     const int tasksCount{ static_cast<int>(tasks.size()) };
     CudaTimer timer{ tasks.size(), enableStats, blockSize, inputSlots, outputSlots };
@@ -85,17 +105,18 @@ int main(int argc ,char* argv[]) {
     for (const auto& task : tasks) {
         const bool wasImageLoaded{ inputBuffer.isImageLoaded(task.image) };
         if (!wasImageLoaded) {
-            loadImageToGPU(hostDeviceStream, inputBuffer, task.image, stagingSlotPtr, timer);
+            loadImageToGPU(hostDeviceStream, inputBuffer, task.image, stagingSlotPtr, deviceLoadFlagPtr, timer);
         }
         auto& inputSlot{ inputBuffer.getImageSlot(task.image) };
         auto& outputSlot{ outputBuffer.getAvailableSlot() };
         const auto taskInfo{ getDetailedTaskInfo(task, filters, filtersOffsets, outputFolder, tasksCount) };
         if (wasImageLoaded) timer.startLoadingImageEvent(convolutionStream);
         convoluteImage(convolutionStream, inputSlot, outputSlot, blockSize, taskInfo, timer);
-        writeImage(deviceHostStream, outputSlot, taskInfo, writingSlotPtr, uintImage.data(), timer);
+        writeImage(deviceHostStream, outputSlot, taskInfo, writingSlotPtr, deviceWriteFlagPtr, timer);
     }
 
     checkCUDAError(cudaDeviceSynchronize(), "An error occurred while waiting for the device to finish");
+    imageWriterThread.join();
     timer.endingProgram();
     timer.writeLog(outputFolder / "log.txt");
     std::cout << std::endl;

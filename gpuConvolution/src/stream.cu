@@ -1,28 +1,35 @@
 #include "stream.cuh"
-#include <syncstream>
 #include "convolution.cuh"
+#include <syncstream>
+#include <nvtx3/nvtx3.hpp>
 
-
-
-void loadImageToStagingMemory(void* userData) {
-    const auto inputInfo{ static_cast<InputBufferSlot*>(userData) };
-    const auto& image{ inputInfo->image };
-    image->load();
-    const auto imageSize{ static_cast<size_t>(image->getWidth() * image->getHeight() * image->getChannels()) };
-    std::copy_n(image->data(), imageSize, inputInfo->stagingPtr);
-    image->unload();
+void loadImagesToStagingBuffer(float *stagingBuffer, volatile uint32_t *loadFlag, const std::vector<std::shared_ptr<Image>> &images) {
+    for (const auto& image : images) {
+        while (*loadFlag != LoadFlag_Empty) {}
+        {
+            nvtx3::scoped_range loadingMarker{ "Loading image data to staging buffer" };
+            image->load();
+            const auto imageSize{ static_cast<size_t>(image->getWidth() * image->getHeight() * image->getChannels()) };
+            std::copy_n(image->data(), imageSize, stagingBuffer);
+            *loadFlag = LoadFlag_ImageLoaded;
+        }
+        nvtx3::scoped_range unloadingMarker{ "Unloading image data from CPU RAM" };
+        image->unload();
+    }
 }
 
-void loadImageToGPU(cudaStream_t stream, InputBuffer& buffer, const std::shared_ptr<Image>& image, float* stagingPtr, CudaTimer& timer) {
+void loadImageToGPU(cudaStream_t stream, InputBuffer& buffer, const std::shared_ptr<Image>& image, float* stagingPtr, CUdeviceptr loadFlag, CudaTimer& timer) {
     auto& inputSlot{ buffer.getAvailableSlot() };
     inputSlot.image = image;
     inputSlot.stagingPtr = stagingPtr;
+
+    cuStreamWaitValue32(stream, loadFlag, LoadFlag_ImageLoaded, CU_STREAM_WAIT_VALUE_EQ);
     timer.startLoadingImageEvent(stream);
-    cudaLaunchHostFunc(stream, loadImageToStagingMemory, &inputSlot);
 
     const size_t inputImageSize{ sizeof(float) * image->getWidth() * image->getHeight() * image->getChannels() };
     cudaMemcpyAsync(inputSlot.ptr, stagingPtr, inputImageSize, cudaMemcpyHostToDevice, stream);
 
+    cuStreamWriteValue32(stream, loadFlag, LoadFlag_Empty, CU_STREAM_WRITE_VALUE_DEFAULT);
 
     cudaEventRecord(inputSlot.transferComplete, stream);
 }
@@ -43,12 +50,7 @@ DetailedTaskInfo getDetailedTaskInfo(const Task& task, const std::vector<Filter>
         .outputImageHeight = isPaddingNone? inputHeight - 2 * halfSize : inputHeight,
         .filterHalfSize = halfSize,
         .filterOffset = offsets[filterIndex],
-        .padding = task.padding,
-        .outputPath = (outputFolder / task.image->getPath().stem()).string()
-        + "-" + getStringFromFilterType(task.filter)
-        + "-" + getStringFromPaddingMode(task.padding)
-        + ".jpg",
-        .tasksCount = tasksCount
+        .padding = task.padding
     };
 }
 
@@ -91,41 +93,44 @@ void convoluteImage(cudaStream_t stream, InputBufferSlot& inSlot, OutputBufferSl
 }
 
 
+void writeImagesToDisk(float* floatWriteBuffer, uint8_t* uintWriteBuffer, volatile uint32_t* writeFlag, const std::vector<Task>& tasks, const std::vector<Filter>& filters, const std::filesystem::path& outputFolder) {
+    const auto tasksCount{ tasks.size() };
+    for (uint32_t i{ 1 }; const auto& task : tasks) {
+        const auto halfSize{ filters[static_cast<FilterTypeInt>(task.filter)].halfSize };
+        const auto outputImageWidth{ task.padding == PaddingMode::None ?
+            task.image->getWidth() - 2 * halfSize : task.image->getWidth() };
+        const auto outputImageHeight{ task.padding == PaddingMode::None ?
+            task.image->getHeight() - 2 * halfSize : task.image->getHeight() };
+        const auto imageSize{ outputImageWidth * outputImageHeight * task.image->getChannels() };
 
-void writeImageCallback(void* userData) {
-    static std::atomic_uint32_t i { 1 };
+        while (*writeFlag != WriteFlag_ImageWritten) {}
 
-    const auto outputInfo{ static_cast<OutputInfo*>(userData) };
-    const size_t imageSize{ static_cast<size_t>(outputInfo->width * outputInfo->height * outputInfo->channels) };
-    floatImageToUIntImage(
-        std::ranges::subrange{ outputInfo->floatData, outputInfo->floatData + imageSize },
-        std::ranges::subrange{ outputInfo->uintData, outputInfo->uintData + imageSize }
-    );
-    writeImage(outputInfo->path,
-            outputInfo->width, outputInfo->height, outputInfo->channels,
-            outputInfo->uintData);
+        nvtx3::scoped_range marker{ "Writing image to disk" };
+        floatImageToUIntImage(
+            std::ranges::subrange{ floatWriteBuffer, floatWriteBuffer + imageSize },
+            std::ranges::subrange{ uintWriteBuffer, uintWriteBuffer + imageSize }
+        );
+        writeImage((outputFolder / task.image->getPath().stem()).string()
+                + "-" + getStringFromFilterType(task.filter)
+                + "-" + getStringFromPaddingMode(task.padding) + ".jpg",
+                outputImageWidth, outputImageHeight, task.image->getChannels(),
+                uintWriteBuffer);
 
-    const auto prev{ i++ };
-    std::osyncstream{ std::cout } << prev << "/" << outputInfo->tasksCount << " images processed\r";
+        *writeFlag = WriteFlag_Empty;
+        std::osyncstream{ std::cout } << i << "/" << tasksCount << " images processed\r";
+        i++;
+    }
 }
 
-void writeImage(cudaStream_t stream, OutputBufferSlot& outSlot, const DetailedTaskInfo& info, float* writingSlot, uint8_t* uintImage, CudaTimer& timer) {
+void writeImage(cudaStream_t stream, OutputBufferSlot& outSlot, const DetailedTaskInfo& info, float* writingSlot, CUdeviceptr writeFlag, CudaTimer& timer) {
     cudaStreamWaitEvent(stream, outSlot.executionFinished);
+    cuStreamWaitValue32(stream, writeFlag, WriteFlag_Empty, CU_STREAM_WAIT_VALUE_EQ);
 
-    outSlot.outputInfo = {
-        .path = std::move(info.outputPath),
-        .floatData = writingSlot,
-        .uintData = uintImage,
-        .width = info.outputImageWidth,
-        .height = info.outputImageHeight,
-        .channels = info.channels,
-        .tasksCount = info.tasksCount
-    };
     const size_t outputImageSize{ sizeof(float) * info.outputImageWidth * info.outputImageHeight * info.channels };
     cudaMemcpyAsync(writingSlot, outSlot.ptr, outputImageSize, cudaMemcpyDeviceToHost, stream);
-
-    cudaLaunchHostFunc(stream, writeImageCallback, &outSlot.outputInfo);
-
     cudaEventRecord(outSlot.transferComplete, stream);
+
+    cuStreamWriteValue32(stream, writeFlag, WriteFlag_ImageWritten, CU_STREAM_WRITE_VALUE_DEFAULT);
+
     timer.endWritingImageEvent(stream);
 }

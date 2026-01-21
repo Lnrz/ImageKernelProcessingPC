@@ -36,20 +36,10 @@ private:
 
 
 
-struct OutputInfo {
-    std::string path;
-    float* floatData;
-    uint8_t* uintData;
-    int width, height;
-    int channels;
-    int tasksCount;
-};
-
 struct OutputBufferSlot {
     float* ptr;
     cudaEvent_t transferComplete;
     cudaEvent_t executionFinished;
-    OutputInfo outputInfo;
 };
 
 class OutputBuffer {
