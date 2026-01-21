@@ -20,4 +20,4 @@ target_link_libraries(cpuKernelConvolution
         PRIVATE hwy)
 
 target_compile_options(cpuKernelConvolution PRIVATE
-        $<$<AND:${is_release},${is_msvc}>:/O2 /Ob3 /fp:fast /arch:AVX2 /Gv /favor:INTEL64>)
+        $<$<AND:${is_release},${is_msvc}>:/O2 /Ob3 /fp:fast /arch:AVX2 /Qvec-report:1 /Gv /favor:INTEL64>)
