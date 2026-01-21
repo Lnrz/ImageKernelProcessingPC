@@ -13,12 +13,14 @@ ProgramData loadTasks(const std::filesystem::path& tasksFolder) {
         exit(-1);
     }
 
-    std::string keywords{ "IMAGE,STATS" };
+    std::string keywords{ "IMAGE,STATS,NOVECT" };
     std::string word;
     tasksFileStream >> word;
     do {
         if (word == "STATS") {
             data.enableStats = true;
+        } else if (word == "NOVECT") {
+            data.disableVect = true;
         } else if (word == "IMAGE") {
             tasksFileStream >> word;
             const auto imagePath{ tasksFolder / word };

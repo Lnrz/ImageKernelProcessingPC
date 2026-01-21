@@ -8,6 +8,24 @@ size_t getCPULanes() {
     return Lanes(D{});
 }
 
+void scalarKernelConvolution(const ConvolutionData& data) {
+    const auto kernelSize{ 2 * data.halfSize + 1 };
+    const auto paddedRowSize{ data.rowSize + 2 * data.halfSize * data.channels };
+
+    for (int row{ data.halfSize }; row < data.rowNum + data.halfSize; row++) {
+        for (size_t channel{ 0 }; channel < data.rowSize; channel++) {
+            float accum{ 0.f };
+            for (int i{ -data.halfSize }; i <= data.halfSize; i++) {
+                for (int j{ 0 }; j < kernelSize; j++) {
+                    accum += data.inPtr[channel + (row + i) * paddedRowSize + j * data.channels]
+                           * data.coefPtr[(i + data.halfSize) * kernelSize + j];
+                }
+            }
+            data.outPtr[(row - data.halfSize) * data.rowSize + channel] = accum;
+        }
+    }
+}
+
 void kernelConvolution(const ConvolutionData &data) {
     using namespace hwy::HWY_NAMESPACE;
     using D = ScalableTag<float>;

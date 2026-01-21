@@ -24,6 +24,9 @@ It is possible to specify more filters and paddings for the same image by separa
 To activate statistics write in tasks.txt the line:
 STATS
 The statistics will be written to a log.txt file inside the outputFolder
+
+To not make use of vector instructions write in tasks.txt the line:
+NOVECT
 )";
     exit(-1);
 }

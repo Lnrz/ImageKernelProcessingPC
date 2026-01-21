@@ -13,6 +13,8 @@ struct ConvolutionData {
 
 size_t getCPULanes();
 
+void scalarKernelConvolution(const ConvolutionData& data);
+
 void kernelConvolution(const ConvolutionData& data);
 
 #endif //IMAGEKERNELPROCESSING_CONVOLUTION_H

@@ -4,6 +4,7 @@
 #include "convolution.h"
 #include "utilities.h"
 #include "timer.h"
+#include "../../../../../../../Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/include/driver_types.h"
 
 struct TaskData {
     std::shared_ptr<Image> inImage{};
@@ -47,7 +48,8 @@ int main(int argc, char* argv[]) {
     auto [
         images,
         tasks,
-        enableStats
+        enableStats,
+        disableVect
     ] = loadTasks(argv[1]);
     const std::filesystem::path outputFolder{ argv[2] };
     const auto filters{ getFilters() };
@@ -63,7 +65,7 @@ int main(int argc, char* argv[]) {
 
     TaskData taskData{};
     const auto tasksCount{ tasks.size() };
-    Timer timer{ enableStats? tasksCount : 0, getCPULanes() };
+    Timer timer{ enableStats? tasksCount : 0, getCPULanes(), disableVect };
     if (enableStats) timer.startingProgram();
     for (int i{ 1 }; const auto& task : tasks) {
         const auto& filter{ filters[static_cast<FilterTypeInt>(task.filter)] };
@@ -72,7 +74,7 @@ int main(int argc, char* argv[]) {
         updateTaskData(task, filter.halfSize, taskData);
         const auto imageChannels{ taskData.inImage->getChannels() };
         if (enableStats) timer.startingImageConvolution();
-        kernelConvolution({
+        ConvolutionData data{
             .inPtr = (taskData.padding == PaddingMode::None) ?
                 taskData.inImage->data() : taskData.inPaddedImage.data(),
             .coefPtr = filter.data.data(),
@@ -81,7 +83,9 @@ int main(int argc, char* argv[]) {
             .rowNum = taskData.rowNum,
             .channels = imageChannels,
             .halfSize = taskData.halfSize
-        });
+        };
+        if (!disableVect) { kernelConvolution(data); }
+        else { scalarKernelConvolution(data); }
         if (enableStats) timer.imageConvolutionEnded();
         floatImageToUIntImage(taskData.outFloatImage, taskData.outUIntImage);
         writeImage((outputFolder / taskData.inImage->getPath().stem()).string()

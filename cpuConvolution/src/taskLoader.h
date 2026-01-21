@@ -14,6 +14,7 @@ struct ProgramData {
     std::unordered_map<std::filesystem::path, std::shared_ptr<Image>> images;
     std::vector<Task> tasks;
     bool enableStats{ false };
+    bool disableVect{ false };
 };
 
 ProgramData loadTasks(const std::filesystem::path& tasksFolder);

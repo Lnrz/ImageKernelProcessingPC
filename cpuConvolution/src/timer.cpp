@@ -2,8 +2,8 @@
 #include <fstream>
 #include <numeric>
 
-Timer::Timer(const size_t tasks, const size_t lanes)
-    : tasks{ tasks }, lanes{ lanes } {
+Timer::Timer(const size_t tasks, const size_t lanes, const bool disableVect)
+    : tasks{ tasks }, lanes{ lanes }, disableVect{ disableVect } {
     processingTimes.reserve(tasks);
     convolutionTimes.reserve(tasks);
 }
@@ -73,7 +73,7 @@ void Timer::writeLog(const std::filesystem::path& path) const {
     logFile
     << std::format("Date:{0:%F}  Time:{0:%R}  Tasks:{1}  ProgramTime:{2}ms\n",
         std::chrono::system_clock::now(), tasks, programTime)
-    << std::format("CPU  Lanes:{}\n", lanes)
+    << std::format("CPU  Lanes:{}  NoVect:{}\n", lanes, disableVect)
     << std::format("ConvolutionTimes:[ Mean:{}ms  Std:{}ms  Max:{}ms  Min:{}ms ]\n",
         meanConvolutionTime, stdConvolutionTime, maxConvolutionTime, minConvolutionTime)
     << std::format("ProcessingTimes:[ Mean:{}ms  Std:{}ms  Max:{}ms  Min:{}ms ]\n",

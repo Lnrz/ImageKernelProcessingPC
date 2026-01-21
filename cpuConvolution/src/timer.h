@@ -9,7 +9,7 @@ public:
     using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
 
     explicit
-    Timer(size_t tasks, size_t lanes);
+    Timer(size_t tasks, size_t lanes, bool noVect);
 
     void startingProgram();
     void startingImageLoading();
@@ -23,6 +23,7 @@ public:
 private:
     const size_t tasks{};
     const size_t lanes{};
+    const bool disableVect{};
     std::vector<float> processingTimes;
     std::vector<float> convolutionTimes;
     float programTime{};
