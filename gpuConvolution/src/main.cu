@@ -93,7 +93,7 @@ int main(int argc ,char* argv[]) {
     OutputBuffer outputBuffer{ static_cast<float*>(buffersBasePtr) + inputSlots * slotSizeInChannels, outputSlots, slotSizeInChannels };
 
     std::vector<std::shared_ptr<Image>> imagesToLoad;
-    std::ranges::unique_copy(images | std::views::values, std::back_inserter(imagesToLoad));
+    std::ranges::unique_copy(tasks | std::views::transform(&Task::image), std::back_inserter(imagesToLoad));
     std::jthread imageLoaderThread{ loadImagesToStagingBuffer,
         stagingSlotPtr, loadFlagPtr, std::cref(imagesToLoad) };
     std::jthread imageWriterThread{ writeImagesToDisk,
