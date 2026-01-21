@@ -26,6 +26,10 @@ FilterType getFilterTypeFromString(const std::string& string) {
         filter = FilterType::LoG9;
     } else if (string == "EmbossUp3") {
         filter = FilterType::EmbossUp3;
+    } else if (string == "SobelUp3") {
+        filter = FilterType::SobelUp3;
+    } else if (string == "SobelRight3") {
+        filter = FilterType::SobelRight3;
     } else {
         std::cerr << "Unknown filter type: " << string << std::endl;
         exit(-1);
@@ -70,6 +74,14 @@ std::string getStringFromFilterType(FilterType filterType) {
             res = "EmbossUp3";
             break;
         }
+        case FilterType::SobelUp3: {
+            res = "SobelUp3";
+            break;
+        }
+        case FilterType::SobelRight3: {
+            res = "SobelRight3";
+            break;
+        }
         default: {
             std::cerr << "Unknown filter type: " << static_cast<FilterTypeInt>(filterType) << std::endl;
             exit(-1);
@@ -99,12 +111,8 @@ PaddingMode getPaddingModeFromString(const std::string& string) {
         paddingMode = PaddingMode::None;
     } else if (string == "Zero") {
         paddingMode = PaddingMode::Zero;
-    } else if (string == "Clamp") {
-        paddingMode = PaddingMode::Clamp;
     } else if (string == "Mirror") {
         paddingMode = PaddingMode::Mirror;
-    } else if (string == "Reverse") {
-        paddingMode = PaddingMode::Reverse;
     } else {
         std::cerr << "Unknown padding mode: " << string << std::endl;
         exit(-1);
@@ -125,20 +133,12 @@ std::string getStringFromPaddingMode(PaddingMode paddingMode) {
             res = "Zero";
             break;
         }
-        case PaddingMode::Clamp: {
-            res = "Clamp";
-            break;
-        }
         case PaddingMode::Mirror: {
             res = "Mirror";
             break;
         }
-        case PaddingMode::Reverse: {
-            res = "Reverse";
-            break;
-        }
         default: {
-            std::cerr << "Unknown padding: " << static_cast<PaddingModeInt>(paddingMode) << std::endl;
+            std::cerr << "Unknown padding mode: " << static_cast<PaddingModeInt>(paddingMode) << std::endl;
             exit(-1);
         }
     }
@@ -225,9 +225,33 @@ void PaddedImage::pad(const Image &image, const PaddingMode mode, const int half
             }
             break;
         }
+        case PaddingMode::Mirror: {
+            imageData = std::vector<float>( paddedWidth * paddedHeight * channels);
+            for (int i{ 0 }; i < height; i++) {
+                std::copy_n(image.data() + i * width * channels,
+                    width * channels,
+                    imageData.data() + ((paddingHalfSize + i) * paddedWidth + paddingHalfSize) * channels);
+                for (int j{ 0 }; j < halfSize; j++) {
+                    for (int c{ 0 }; c < channels; c++) {
+                        imageData[((paddingHalfSize + i) * paddedWidth + paddingHalfSize - 1 - j) * channels + c] =
+                            image.data()[(i * width + 1 + j) * channels + c];
+                        imageData[((paddingHalfSize + i) * paddedWidth + paddingHalfSize + width + j) * channels + c] =
+                            image.data()[((i + 1) * width - 2 - j) * channels + c];
+                    }
+                }
+            }
+            for (int i{ 0 }; i < halfSize; i++) {
+                std::copy_n(imageData.data() + (paddingHalfSize + 1 + i) * paddedWidth * channels,
+                    paddedWidth * channels,
+                    imageData.data() + (paddingHalfSize - 1 - i) * paddedWidth * channels);
+                std::copy_n(imageData.data() + (paddingHalfSize + height - 2 - i) * paddedWidth * channels,
+                    paddedWidth * channels,
+                    imageData.data() + (paddingHalfSize + height + i) * paddedWidth * channels);
+            }
+            break;
+        }
         default: {
-            std::cerr << "Padding mode "  << static_cast<std::underlying_type_t<PaddingMode>>(mode)
-                      << " currently not implemented" << std::endl;
+            std::cerr << "Unknown padding mode: "  << static_cast<PaddingModeInt>(mode) << std::endl;
             exit(-1);
         }
     }

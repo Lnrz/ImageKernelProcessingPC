@@ -16,6 +16,8 @@ enum class FilterType {
     LoG5,
     LoG9,
     EmbossUp3,
+    SobelUp3,
+    SobelRight3,
     Num
 };
 using FilterTypeInt = std::underlying_type_t<FilterType>;
@@ -103,6 +105,24 @@ struct Filter {
                 };
                 break;
             }
+            case FilterType::SobelUp3: {
+                halfSize = 1;
+                data = {
+                    1.f, 2.f, 1.f,
+                    0.f, 0.f, 0.f,
+                    -1.f, -2.f, -1.f
+                };
+                break;
+            }
+            case FilterType::SobelRight3: {
+                halfSize = 1;
+                data = {
+                    -1.f, 0.f, 1.f,
+                    -2.f, 0.f, 2.f,
+                    -1.f, 0.f, 1.f
+                };
+                break;
+            }
             default: {
                 std::cerr << "Filter type: " << static_cast<std::underlying_type_t<FilterType>>(type)
                         << " still not implemented" << std::endl;
@@ -136,9 +156,7 @@ enum class PaddingMode {
     Invalid = -1,
     None,
     Zero,
-    Clamp,
-    Mirror,
-    Reverse
+    Mirror
 };
 using PaddingModeInt = std::underlying_type_t<PaddingMode>;
 

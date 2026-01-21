@@ -14,6 +14,46 @@ __constant__ float deviceFilters[getFiltersSize()];
  * Quelli calcolati qui in canali, si opera a livello di canali
  */
 
+__device__ float padData(const CudaConvolutionData& data, int loadX, int loadY, bool isOutOfBoundsX, bool isOutOfBoundsY) {
+    switch (data.padding) {
+        case PaddingMode::Zero: {
+            return 0.f;
+        }
+        case PaddingMode::Mirror: {
+            int mirrorLoadX{ loadX };
+            if (isOutOfBoundsX) {
+                const int pixelX{ loadX < 0 ?
+                    2 * data.inputImageWidth - 2 + abs((loadX - data.channels + 1) / data.channels) :
+                    loadX / data.channels };
+                const int channelOffset{ loadX < 0 ?
+                    data.channels - 1 + ((loadX + 1) % data.channels) : loadX % data.channels };
+                const int loadPixelX{ ((pixelX - data.inputImageWidth) / (data.inputImageWidth - 1)) % 2 == 0 ?
+                    data.inputImageWidth - 2 - ((pixelX - data.inputImageWidth) % (data.inputImageWidth - 1)) :
+                    1 + ((pixelX - data.inputImageWidth) % (data.inputImageWidth - 1)) };
+
+                mirrorLoadX = loadPixelX * data.channels + channelOffset;
+            }
+
+            int mirrorLoadY{ loadY };
+            if (isOutOfBoundsY) {
+                const int pixelY{ loadY < 0 ?
+                    2 * data.inputImageHeight - 2 + abs(loadY ) : loadY };
+                const int loadPixelY{ ((pixelY - data.inputImageHeight) / (data.inputImageHeight - 1)) % 2 == 0 ?
+                    data.inputImageHeight - 2 - ((pixelY - data.inputImageHeight) % (data.inputImageHeight - 1)) :
+                    1 + ((pixelY - data.inputImageHeight) % (data.inputImageHeight - 1)) };
+
+                mirrorLoadY = loadPixelY;
+            }
+
+            return data.input[mirrorLoadX + mirrorLoadY * data.inputImageRowSize];
+        }
+        default: {
+            return 0.f;
+            //__builtin_unreachable();
+        }
+    }
+}
+
 __device__ void loadDataToSharedMemory(const CudaConvolutionData& data, float* cache) {
     // load data into shared memory
     // SOURCEXY coordinate del primo channel da caricare, se negative va usato il padding
@@ -32,11 +72,12 @@ __device__ void loadDataToSharedMemory(const CudaConvolutionData& data, float* c
         const int loadY{ sourceY + incrementY };
         if (loadY >= maxY) continue;
         const int storeIndex{ increment };
-        if (loadX < 0 || loadX >= data.inputImageRowSize ||
-            loadY < 0 || loadY >= data.inputImageHeight) {
-            cache[storeIndex] = 0.f;
-        } else {
+        const bool isOutOfBoundsX{ loadX < 0 || loadX >= data.inputImageRowSize };
+        const bool isOutOfBoundsY{ loadY < 0 || loadY >= data.inputImageHeight };
+        if (!(isOutOfBoundsX || isOutOfBoundsY)) {
             cache[storeIndex] = data.input[loadX + loadY * data.inputImageRowSize];
+        } else {
+            cache[storeIndex] = padData(data, loadX, loadY, isOutOfBoundsX, isOutOfBoundsY);
         }
     }
 }

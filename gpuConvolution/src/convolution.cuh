@@ -7,6 +7,7 @@ extern __constant__ float deviceFilters[getFiltersSize()];
 
 struct CudaConvolutionData {
     float *input{}, *output{};
+    int inputImageWidth{};
     int inputImageRowSize{};
     int inputImageHeight{};
     int channels{};

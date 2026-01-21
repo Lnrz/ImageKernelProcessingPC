@@ -69,6 +69,7 @@ void convoluteImage(cudaStream_t stream, InputBufferSlot& inSlot, OutputBufferSl
     cudaKernelConvolution<<<gridSize, blockSize, sharedMemorySize, stream>>>({
         .input = inSlot.ptr,
         .output = outSlot.ptr,
+        .inputImageWidth = info.inputImageWidth,
         .inputImageRowSize = info.inputImageWidth * info.channels,
         .inputImageHeight = info.inputImageHeight,
         .channels = info.channels,
