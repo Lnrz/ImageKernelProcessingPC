@@ -9,9 +9,6 @@ __constant__ float deviceFilters[getFiltersSize()];
  * Tutti i thread caricano i dati
  *
  * Le dimensioni dei block sono in canali!
- *
- * Le width e height di input sono espressi in pixel
- * Quelli calcolati qui in canali, si opera a livello di canali
  */
 
 __device__ float padData(const CudaConvolutionData& data, int loadX, int loadY, bool isOutOfBoundsX, bool isOutOfBoundsY) {
@@ -48,8 +45,13 @@ __device__ float padData(const CudaConvolutionData& data, int loadX, int loadY, 
             return data.input[mirrorLoadX + mirrorLoadY * data.inputImageRowSize];
         }
         default: {
+#ifdef NDEBUG
+            __builtin_unreachable();
+#else
+            printf("Reached unreachable code in padData\nBlock(%d,%d)  Thread(%d,%d)  Padding %d\n",
+                blockIdx.x, blockIdx.y, threadIdx.x, threadIdx.y, static_cast<PaddingModeInt>(data.padding));
             return 0.f;
-            //__builtin_unreachable();
+#endif
         }
     }
 }
@@ -58,16 +60,24 @@ __device__ void loadDataToSharedMemory(const CudaConvolutionData& data, float* c
     // load data into shared memory
     // SOURCEXY coordinate del primo channel da caricare, se negative va usato il padding
     // Le coordinate vanno pensate come in riferimento all'immagine non paddata
+    // di conseguenza possono essere negative o maggiori delle dimensioni dell'immagine di input
     const int sourceX{ (data.padding == PaddingMode::None) ? static_cast<int>(blockIdx.x * blockDim.x) :
                       static_cast<int>(blockIdx.x * blockDim.x) - data.halfSize * data.channels };
     const int sourceY{ (data.padding == PaddingMode::None) ? static_cast<int>(blockIdx.y * blockDim.y) :
                       static_cast<int>(blockIdx.y * blockDim.y) - data.halfSize };
-    const int maxY{ sourceY + data.cacheHeight };
+    const int maxY{ min(
+        sourceY + data.cacheHeight,
+        (data.padding == PaddingMode::None) ? data.inputImageHeight : data.inputImageHeight + data.halfSize
+    )};
+    const int actualCacheRowSize{ min(
+        data.cacheRowSize,
+        static_cast<int>(data.outputImageRowSize - blockDim.x * blockIdx.x + 2 * data.halfSize * data.channels)
+    )};
 
     for (int i{ 0 }; i < data.loadingSteps; i++) {
         const int increment{ i * data.channelsPerLoad + static_cast<int>(threadIdx.x + blockDim.x * threadIdx.y) };
-        const int incrementX{ increment % data.cacheRowSize };
-        const int incrementY{ increment / data.cacheRowSize };
+        const int incrementX{ increment % actualCacheRowSize };
+        const int incrementY{ increment / actualCacheRowSize };
         const int loadX{ sourceX + incrementX };
         const int loadY{ sourceY + incrementY };
         if (loadY >= maxY) continue;
