@@ -4,7 +4,6 @@
 #include "convolution.h"
 #include "utilities.h"
 #include "timer.h"
-#include "../../../../../../../Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/include/driver_types.h"
 
 struct TaskData {
     std::shared_ptr<Image> inImage{};
