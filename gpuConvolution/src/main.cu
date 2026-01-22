@@ -110,7 +110,7 @@ int main(int argc ,char* argv[]) {
             loadImageToGPU(hostDeviceStream, inputBuffer, task.image, stagingSlotPtr, deviceLoadFlagPtr, timer);
         }
         auto& inputSlot{ inputBuffer.getImageSlot(task.image) };
-        auto& outputSlot{ outputBuffer.getAvailableSlot() };
+        auto& outputSlot{ outputBuffer.getSlot() };
         const auto taskInfo{ getDetailedTaskInfo(task, filters, filtersOffsets, outputFolder, tasksCount) };
         if (wasImageLoaded) timer.startLoadingImageEvent(convolutionStream);
         convoluteImage(convolutionStream, inputSlot, outputSlot, blockSize, taskInfo, timer);

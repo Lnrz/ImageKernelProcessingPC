@@ -45,22 +45,10 @@ InputBufferSlot & InputBuffer::getImageSlot(const std::shared_ptr<Image> &image)
     return *res;
 }
 
-InputBufferSlot& InputBuffer::getAvailableSlot() {
-    while(true) {
-        for (auto& slot : slots) {
-            switch (const auto res { cudaEventQuery(slot.executionFinished) }; res) {
-                case cudaSuccess: {
-                    return slot;
-                }
-                case cudaErrorNotReady: {
-                    continue;
-                }
-                default: {
-                    checkCUDAError(res, "An error occurred while checking for an available input slot");
-                }
-            }
-        }
-    }
+InputBufferSlot & InputBuffer::getSlot() {
+    auto& slot{ slots[currentSlot] };
+    currentSlot = (currentSlot + 1) % slots.size();
+    return slot;
 }
 
 OutputBuffer::OutputBuffer(float *basePtr, const size_t slotsNum, const size_t slotSize) {
@@ -86,20 +74,8 @@ OutputBuffer::~OutputBuffer() {
     }
 }
 
-OutputBufferSlot& OutputBuffer::getAvailableSlot() {
-    while(true) {
-        for (auto& slot : slots) {
-            switch (const auto res { cudaEventQuery(slot.transferComplete) }; res) {
-                case cudaSuccess: {
-                    return slot;
-                }
-                case cudaErrorNotReady: {
-                    continue;
-                }
-                default: {
-                    checkCUDAError(res, "An error occurred while checking for an available output slot");
-                }
-            }
-        }
-    }
+OutputBufferSlot & OutputBuffer::getSlot() {
+    auto& slot{ slots[currentSlot] };
+    currentSlot = (currentSlot + 1) % slots.size();
+    return slot;
 }

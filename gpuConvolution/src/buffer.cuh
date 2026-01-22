@@ -31,12 +31,13 @@ public:
     InputBufferSlot& getImageSlot(const std::shared_ptr<Image>& image);
 
     [[nodiscard]]
-    InputBufferSlot& getAvailableSlot();
+    InputBufferSlot& getSlot();
 
 private:
     using Slots = std::vector<InputBufferSlot>;
 
     Slots slots;
+    size_t currentSlot{ 0 };
 };
 
 
@@ -58,12 +59,13 @@ public:
     OutputBuffer& operator=(OutputBuffer&& oth) = delete;
 
     [[nodiscard]]
-    OutputBufferSlot& getAvailableSlot();
+    OutputBufferSlot& getSlot();
 
 private:
     using Slots = std::vector<OutputBufferSlot>;
 
     Slots slots;
+    size_t currentSlot{ 0 };
 };
 
 #endif //IMAGEKERNELPROCESSINGCUDA_MANAGER_CUH

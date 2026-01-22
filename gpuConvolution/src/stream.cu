@@ -18,13 +18,15 @@ void loadImagesToStagingBuffer(float *stagingBuffer, volatile uint32_t *loadFlag
 }
 
 void loadImageToGPU(cudaStream_t stream, InputBuffer& buffer, const std::shared_ptr<Image>& image, float* stagingPtr, CUdeviceptr loadFlag, CudaTimer& timer) {
-    auto& inputSlot{ buffer.getAvailableSlot() };
+    auto& inputSlot{ buffer.getSlot() };
     inputSlot.image = image;
     inputSlot.stagingPtr = stagingPtr;
 
+    timer.startLoadingImageEvent(stream);
     checkCUDAError(cuStreamWaitValue32(stream, loadFlag, LoadFlag_ImageLoaded, CU_STREAM_WAIT_VALUE_EQ),
         "An error occurred while issuing a wait on the loadFlag");
-    timer.startLoadingImageEvent(stream);
+    checkCUDAError(cudaStreamWaitEvent(stream, inputSlot.executionFinished),
+        "An error occurred while issuing a wait on the executionFinished event of an input slot");
 
     const size_t inputImageSize{ sizeof(float) * image->getWidth() * image->getHeight() * image->getChannels() };
     checkCUDAError(cudaMemcpyAsync(inputSlot.ptr, stagingPtr, inputImageSize, cudaMemcpyHostToDevice, stream),
@@ -32,7 +34,6 @@ void loadImageToGPU(cudaStream_t stream, InputBuffer& buffer, const std::shared_
 
     checkCUDAError(cuStreamWriteValue32(stream, loadFlag, LoadFlag_Empty, CU_STREAM_WRITE_VALUE_DEFAULT),
         "An error occurred while issuing a write to the loadFlag");
-
     checkCUDAError(cudaEventRecord(inputSlot.transferComplete, stream),
         "An error occurred while recording the transferComplete event of an input slot");
 }
@@ -62,6 +63,8 @@ DetailedTaskInfo getDetailedTaskInfo(const Task& task, const std::vector<Filter>
 void convoluteImage(cudaStream_t stream, InputBufferSlot& inSlot, OutputBufferSlot& outSlot, dim3 blockSize, const DetailedTaskInfo& info, CudaTimer& timer) {
     checkCUDAError(cudaStreamWaitEvent(stream, inSlot.transferComplete),
         "An error occurred while issuing a wait on the transferComplete event of an input slot");
+    checkCUDAError(cudaStreamWaitEvent(stream, outSlot.transferComplete),
+        "An error occurred while issuing a wait on the transferComplete event of an output slot");
 
     const dim3 gridSize{
         (info.outputImageWidth * info.channels + blockSize.x - 1) / blockSize.x,
@@ -137,11 +140,10 @@ void writeImage(cudaStream_t stream, OutputBufferSlot& outSlot, const DetailedTa
     const size_t outputImageSize{ sizeof(float) * info.outputImageWidth * info.outputImageHeight * info.channels };
     checkCUDAError(cudaMemcpyAsync(writingSlot, outSlot.ptr, outputImageSize, cudaMemcpyDeviceToHost, stream),
         "An error occurred while issuing an async copy from an output slot to the writing slot");
-    checkCUDAError(cudaEventRecord(outSlot.transferComplete, stream),
-        "An error occurred while recording the tranferComplete event of an output slot");
 
+    checkCUDAError(cudaEventRecord(outSlot.transferComplete, stream),
+        "An error occurred while recording the transferComplete event of an output slot");
     checkCUDAError(cuStreamWriteValue32(stream, writeFlag, WriteFlag_ImageWritten, CU_STREAM_WRITE_VALUE_DEFAULT),
         "An error occurred while issuing a write to the writeFlag");
-
     timer.endWritingImageEvent(stream);
 }
