@@ -82,8 +82,10 @@ int main(int argc ,char* argv[]) {
     *loadFlagPtr = LoadFlag_Empty;
     *writeFlagPtr = WriteFlag_Empty;
     CUdeviceptr deviceLoadFlagPtr, deviceWriteFlagPtr;
-    cuMemHostGetDevicePointer(&deviceLoadFlagPtr, loadFlagPtr, 0);
-    cuMemHostGetDevicePointer(&deviceWriteFlagPtr, writeFlagPtr, 0);
+    checkCUDAError(cuMemHostGetDevicePointer(&deviceLoadFlagPtr, loadFlagPtr, 0),
+        "An error occurred while getting the device pointer to the load flag");
+    checkCUDAError(cuMemHostGetDevicePointer(&deviceWriteFlagPtr, writeFlagPtr, 0),
+        "An error occurred while getting the device pointer to the write flag");
     std::vector<uint8_t> uintImage(slotSizeInChannels);
 
     void* buffersBasePtr{ nullptr };
@@ -121,10 +123,10 @@ int main(int argc ,char* argv[]) {
     timer.writeLog(outputFolder / "log.txt");
     std::cout << std::endl;
     for (auto stream : { hostDeviceStream, convolutionStream, deviceHostStream }) {
-        cudaStreamDestroy(stream);
+        checkCUDAError(cudaStreamDestroy(stream), "An error occured while destroying streams");
     }
-    cudaFreeHost(pageLockedBasePtr);
-    cudaFree(buffersBasePtr);
+    checkCUDAError(cudaFreeHost(pageLockedBasePtr), "An error occurred while freeing page locked memory");
+    checkCUDAError(cudaFree(buffersBasePtr), "An error occurred while freeing GPU memory");
 
     return 0;
 }

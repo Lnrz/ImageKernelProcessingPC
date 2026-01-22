@@ -1,7 +1,7 @@
 #include "timer.cuh"
-#include "utilities.cuh"
 #include <numeric>
 #include <fstream>
+#include "utilities.cuh"
 
 CudaTimer::CudaTimer(const size_t tasks, const bool enable, const dim3 blockSize, const size_t inputSlots, const size_t outputSlots)
     : tasks{ tasks }
@@ -14,7 +14,7 @@ CudaTimer::CudaTimer(const size_t tasks, const bool enable, const dim3 blockSize
     convolutionTimes.reserve(tasks);
     processingTimes.reserve(tasks);
     events.resize(tasks);
-    for (constexpr auto errorMsg{ "An error occurred while creating the events for timing"sv };
+    for (constexpr auto errorMsg{ "An error occurred while creating the timing events"sv };
         auto& event : events) {
         checkCUDAError(cudaEventCreate(&event.startLoading), errorMsg);
         checkCUDAError(cudaEventCreate(&event.startConvolution), errorMsg);
@@ -25,12 +25,14 @@ CudaTimer::CudaTimer(const size_t tasks, const bool enable, const dim3 blockSize
 
 CudaTimer::~CudaTimer() {
     if (!enable) return;
+    using namespace std::string_view_literals;
 
-    for (auto& event : events) {
-        cudaEventDestroy(event.startLoading);
-        cudaEventDestroy(event.startConvolution);
-        cudaEventDestroy(event.endConvolution);
-        cudaEventDestroy(event.endWriting);
+    for (constexpr auto errorMsg{ "An error occurred while destroying the timing events"sv };
+         auto& event : events) {
+        checkCUDAError(cudaEventDestroy(event.startLoading), errorMsg);
+        checkCUDAError(cudaEventDestroy(event.startConvolution), errorMsg);
+        checkCUDAError(cudaEventDestroy(event.endConvolution), errorMsg);
+        checkCUDAError(cudaEventDestroy(event.endWriting), errorMsg);
     }
 }
 
@@ -41,25 +43,29 @@ void CudaTimer::startingProgram() {
 void CudaTimer::startLoadingImageEvent(cudaStream_t stream) {
     if (!enable) return;
 
-    cudaEventRecord(events[currentTask].startLoading, stream);
+    checkCUDAError(cudaEventRecord(events[currentTask].startLoading, stream),
+        "An error occurred while registering a loading image event for timing");
 }
 
 void CudaTimer::startConvolutingImageEvent(cudaStream_t stream) {
     if (!enable) return;
 
-    cudaEventRecord(events[currentTask].startConvolution, stream);
+    checkCUDAError(cudaEventRecord(events[currentTask].startConvolution, stream),
+        "An error occurred while registering a convolution start event for timing");
 }
 
 void CudaTimer::endConvolutingImageEvent(cudaStream_t stream) {
     if (!enable) return;
 
-    cudaEventRecord(events[currentTask].endConvolution, stream);
+    checkCUDAError(cudaEventRecord(events[currentTask].endConvolution, stream),
+        "An error occurred while registering a convolution end event for timing");
 }
 
 void CudaTimer::endWritingImageEvent(cudaStream_t stream) {
     if (!enable) return;
 
-    cudaEventRecord(events[currentTask].endWriting, stream);
+    checkCUDAError(cudaEventRecord(events[currentTask].endWriting, stream),
+        "An error occurred while registering an image written event for timing");
     currentTask++;
 }
 

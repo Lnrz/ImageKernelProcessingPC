@@ -1,19 +1,26 @@
 #include "buffer.cuh"
+#include "utilities.cuh"
 
 InputBuffer::InputBuffer(float* basePtr, const size_t slotsNum, const size_t slotSize) {
+    using namespace std::string_view_literals;
+
     slots.resize(slotsNum);
     for (size_t i{ 0 }; auto& slot : slots) {
         slot.ptr = basePtr + i * slotSize;
-        cudaEventCreateWithFlags(&slot.executionFinished, cudaEventDisableTiming);
-        cudaEventCreateWithFlags(&slot.transferComplete, cudaEventDisableTiming);
+        constexpr auto errorMsg{ "An error occurred while creating the input slots events"sv };
+        checkCUDAError(cudaEventCreateWithFlags(&slot.executionFinished, cudaEventDisableTiming), errorMsg);
+        checkCUDAError(cudaEventCreateWithFlags(&slot.transferComplete, cudaEventDisableTiming), errorMsg);
         i++;
     }
 }
 
 InputBuffer::~InputBuffer() {
-    for (auto& slot : slots) {
-        cudaEventDestroy(slot.executionFinished);
-        cudaEventDestroy(slot.transferComplete);
+    using namespace  std::string_view_literals;
+
+    for (constexpr auto errorMsg{ "An error occurred while destroying the input slots events"sv };
+         auto& slot : slots) {
+        checkCUDAError(cudaEventDestroy(slot.executionFinished), errorMsg);
+        checkCUDAError(cudaEventDestroy(slot.transferComplete), errorMsg);
     }
 }
 
@@ -41,35 +48,57 @@ InputBufferSlot & InputBuffer::getImageSlot(const std::shared_ptr<Image> &image)
 InputBufferSlot& InputBuffer::getAvailableSlot() {
     while(true) {
         for (auto& slot : slots) {
-            if (cudaEventQuery(slot.executionFinished) == cudaSuccess) {
-                return slot;
+            switch (const auto res { cudaEventQuery(slot.executionFinished) }; res) {
+                case cudaSuccess: {
+                    return slot;
+                }
+                case cudaErrorNotReady: {
+                    continue;
+                }
+                default: {
+                    checkCUDAError(res, "An error occurred while checking for an available input slot");
+                }
             }
         }
     }
 }
 
 OutputBuffer::OutputBuffer(float *basePtr, const size_t slotsNum, const size_t slotSize) {
+    using namespace std::string_view_literals;
+
     slots.resize(slotsNum);
     for (size_t i{ 0 }; auto& slot : slots) {
         slot.ptr = basePtr + i * slotSize;
-        cudaEventCreateWithFlags(&slot.executionFinished, cudaEventDisableTiming);
-        cudaEventCreateWithFlags(&slot.transferComplete, cudaEventDisableTiming);
+        constexpr auto errorMsg{ "An error occurred while creating the output slots events"sv };
+        checkCUDAError(cudaEventCreateWithFlags(&slot.executionFinished, cudaEventDisableTiming), errorMsg);
+        checkCUDAError(cudaEventCreateWithFlags(&slot.transferComplete, cudaEventDisableTiming), errorMsg);
         i++;
     }
 }
 
 OutputBuffer::~OutputBuffer() {
-    for (auto& slot : slots) {
-        cudaEventDestroy(slot.executionFinished);
-        cudaEventDestroy(slot.transferComplete);
+    using namespace  std::string_view_literals;
+
+    for (constexpr auto errorMsg{ "An error occurred while destroying the output slots events"sv };
+         auto& slot : slots) {
+        checkCUDAError(cudaEventDestroy(slot.executionFinished), errorMsg);
+        checkCUDAError(cudaEventDestroy(slot.transferComplete), errorMsg);
     }
 }
 
-OutputBufferSlot & OutputBuffer::getAvailableSlot() {
+OutputBufferSlot& OutputBuffer::getAvailableSlot() {
     while(true) {
         for (auto& slot : slots) {
-            if (cudaEventQuery(slot.transferComplete) == cudaSuccess) {
-                return slot;
+            switch (const auto res { cudaEventQuery(slot.transferComplete) }; res) {
+                case cudaSuccess: {
+                    return slot;
+                }
+                case cudaErrorNotReady: {
+                    continue;
+                }
+                default: {
+                    checkCUDAError(res, "An error occurred while checking for an available output slot");
+                }
             }
         }
     }

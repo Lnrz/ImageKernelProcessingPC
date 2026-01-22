@@ -14,7 +14,12 @@ public:
     using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
 
     CudaTimer(size_t tasks, bool enable, dim3 blockSize, size_t inputSlots, size_t outputSlots);
+    CudaTimer(const CudaTimer& oth) = delete;
+    CudaTimer(CudaTimer&& oth) = delete;
     ~CudaTimer();
+
+    CudaTimer& operator=(const CudaTimer& oth) = delete;
+    CudaTimer& operator=(CudaTimer&& oth) = delete;
 
     void startingProgram();
     void startLoadingImageEvent(cudaStream_t stream);

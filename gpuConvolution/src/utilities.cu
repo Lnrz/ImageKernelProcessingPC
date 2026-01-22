@@ -2,9 +2,18 @@
 #include <iostream>
 
 void checkCUDAError(const cudaError_t error, const std::string_view msg) {
-    if (error == cudaSuccess) return;
+    if (error == cudaSuccess) [[likely]] return;
     std::cout << msg << std::endl;
     std::cout << ">" << cudaGetErrorString(error) << std::endl;
+    exit(-1);
+}
+
+void checkCUDAError(const CUresult error, const std::string_view msg) {
+    if (error == CUDA_SUCCESS) [[likely]] return;
+    const char* errorString;
+    cuGetErrorString(error, &errorString);
+    std::cout << msg << std::endl;
+    std::cout << ">" << errorString << std::endl;
     exit(-1);
 }
 

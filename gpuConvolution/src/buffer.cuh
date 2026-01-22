@@ -17,7 +17,12 @@ struct InputBufferSlot {
 class InputBuffer {
 public:
     InputBuffer(float* basePtr, size_t slotsNum, size_t slotSize);
+    InputBuffer(const InputBuffer& oth) = delete;
+    InputBuffer(InputBuffer&& oth) = delete;
     ~InputBuffer();
+
+    InputBuffer& operator=(const InputBuffer& oth) = delete;
+    InputBuffer& operator=(InputBuffer&& oth) = delete;
 
     [[nodiscard]]
     bool isImageLoaded(const std::shared_ptr<Image>& image) const;
@@ -45,7 +50,12 @@ struct OutputBufferSlot {
 class OutputBuffer {
 public:
     OutputBuffer(float* basePtr, size_t slotsNum, size_t slotSize);
+    OutputBuffer(const OutputBuffer& oth) = delete;
+    OutputBuffer(OutputBuffer&& oth) = delete;
     ~OutputBuffer();
+
+    OutputBuffer& operator=(const OutputBuffer& oth) = delete;
+    OutputBuffer& operator=(OutputBuffer&& oth) = delete;
 
     [[nodiscard]]
     OutputBufferSlot& getAvailableSlot();

@@ -1,19 +1,18 @@
 #include "stream.cuh"
-#include "convolution.cuh"
-#include <syncstream>
 #include <nvtx3/nvtx3.hpp>
+#include <syncstream>
+#include "convolution.cuh"
+#include "utilities.cuh"
 
 void loadImagesToStagingBuffer(float *stagingBuffer, volatile uint32_t *loadFlag, const std::vector<std::shared_ptr<Image>> &images) {
     for (const auto& image : images) {
         while (*loadFlag != LoadFlag_Empty) {}
-        {
-            nvtx3::scoped_range loadingMarker{ "Loading image data to staging buffer" };
-            image->load();
-            const auto imageSize{ static_cast<size_t>(image->getWidth() * image->getHeight() * image->getChannels()) };
-            std::copy_n(image->data(), imageSize, stagingBuffer);
-            *loadFlag = LoadFlag_ImageLoaded;
-        }
-        nvtx3::scoped_range unloadingMarker{ "Unloading image data from CPU RAM" };
+
+        nvtx3::scoped_range loadingMarker{ "Loading image data to staging buffer" };
+        image->load();
+        const auto imageSize{ static_cast<size_t>(image->getWidth() * image->getHeight() * image->getChannels()) };
+        std::copy_n(image->data(), imageSize, stagingBuffer);
+        *loadFlag = LoadFlag_ImageLoaded;
         image->unload();
     }
 }
@@ -23,15 +22,19 @@ void loadImageToGPU(cudaStream_t stream, InputBuffer& buffer, const std::shared_
     inputSlot.image = image;
     inputSlot.stagingPtr = stagingPtr;
 
-    cuStreamWaitValue32(stream, loadFlag, LoadFlag_ImageLoaded, CU_STREAM_WAIT_VALUE_EQ);
+    checkCUDAError(cuStreamWaitValue32(stream, loadFlag, LoadFlag_ImageLoaded, CU_STREAM_WAIT_VALUE_EQ),
+        "An error occurred while issuing a wait on the loadFlag");
     timer.startLoadingImageEvent(stream);
 
     const size_t inputImageSize{ sizeof(float) * image->getWidth() * image->getHeight() * image->getChannels() };
-    cudaMemcpyAsync(inputSlot.ptr, stagingPtr, inputImageSize, cudaMemcpyHostToDevice, stream);
+    checkCUDAError(cudaMemcpyAsync(inputSlot.ptr, stagingPtr, inputImageSize, cudaMemcpyHostToDevice, stream),
+        "An error occurred while issuing an async copy from the staging slot to an input slot");
 
-    cuStreamWriteValue32(stream, loadFlag, LoadFlag_Empty, CU_STREAM_WRITE_VALUE_DEFAULT);
+    checkCUDAError(cuStreamWriteValue32(stream, loadFlag, LoadFlag_Empty, CU_STREAM_WRITE_VALUE_DEFAULT),
+        "An error occurred while issuing a write to the loadFlag");
 
-    cudaEventRecord(inputSlot.transferComplete, stream);
+    checkCUDAError(cudaEventRecord(inputSlot.transferComplete, stream),
+        "An error occurred while recording the transferComplete event of an input slot");
 }
 
 
@@ -57,7 +60,8 @@ DetailedTaskInfo getDetailedTaskInfo(const Task& task, const std::vector<Filter>
 
 
 void convoluteImage(cudaStream_t stream, InputBufferSlot& inSlot, OutputBufferSlot& outSlot, dim3 blockSize, const DetailedTaskInfo& info, CudaTimer& timer) {
-    cudaStreamWaitEvent(stream, inSlot.transferComplete);
+    checkCUDAError(cudaStreamWaitEvent(stream, inSlot.transferComplete),
+        "An error occurred while issuing a wait on the transferComplete event of an input slot");
 
     const dim3 gridSize{
         (info.outputImageWidth * info.channels + blockSize.x - 1) / blockSize.x,
@@ -87,8 +91,10 @@ void convoluteImage(cudaStream_t stream, InputBufferSlot& inSlot, OutputBufferSl
         .loadingSteps = static_cast<int>((sharedMemorySize + channelsPerLoad - 1) / channelsPerLoad)
     });
 
-    cudaEventRecord(inSlot.executionFinished, stream);
-    cudaEventRecord(outSlot.executionFinished, stream);
+    checkCUDAError(cudaEventRecord(inSlot.executionFinished, stream),
+        "An error occurred while recording the executionFinished event of an input slot");
+    checkCUDAError(cudaEventRecord(outSlot.executionFinished, stream),
+        "An error occurred while recording the executionFinished event of an output slot");
     timer.endConvolutingImageEvent(stream);
 }
 
@@ -105,7 +111,7 @@ void writeImagesToDisk(float* floatWriteBuffer, uint8_t* uintWriteBuffer, volati
 
         while (*writeFlag != WriteFlag_ImageWritten) {}
 
-        nvtx3::scoped_range marker{ "Writing image to disk" };
+        nvtx3::scoped_range writingMarker{ "Writing image to disk" };
         floatImageToUIntImage(
             std::ranges::subrange{ floatWriteBuffer, floatWriteBuffer + imageSize },
             std::ranges::subrange{ uintWriteBuffer, uintWriteBuffer + imageSize }
@@ -123,14 +129,19 @@ void writeImagesToDisk(float* floatWriteBuffer, uint8_t* uintWriteBuffer, volati
 }
 
 void writeImage(cudaStream_t stream, OutputBufferSlot& outSlot, const DetailedTaskInfo& info, float* writingSlot, CUdeviceptr writeFlag, CudaTimer& timer) {
-    cudaStreamWaitEvent(stream, outSlot.executionFinished);
-    cuStreamWaitValue32(stream, writeFlag, WriteFlag_Empty, CU_STREAM_WAIT_VALUE_EQ);
+    checkCUDAError(cudaStreamWaitEvent(stream, outSlot.executionFinished),
+        "An error occurred while issuing a wait on the executionFinished event of an output slot");
+    checkCUDAError(cuStreamWaitValue32(stream, writeFlag, WriteFlag_Empty, CU_STREAM_WAIT_VALUE_EQ),
+        "An error occurred while issuing a wait on the write flag");
 
     const size_t outputImageSize{ sizeof(float) * info.outputImageWidth * info.outputImageHeight * info.channels };
-    cudaMemcpyAsync(writingSlot, outSlot.ptr, outputImageSize, cudaMemcpyDeviceToHost, stream);
-    cudaEventRecord(outSlot.transferComplete, stream);
+    checkCUDAError(cudaMemcpyAsync(writingSlot, outSlot.ptr, outputImageSize, cudaMemcpyDeviceToHost, stream),
+        "An error occurred while issuing an async copy from an output slot to the writing slot");
+    checkCUDAError(cudaEventRecord(outSlot.transferComplete, stream),
+        "An error occurred while recording the tranferComplete event of an output slot");
 
-    cuStreamWriteValue32(stream, writeFlag, WriteFlag_ImageWritten, CU_STREAM_WRITE_VALUE_DEFAULT);
+    checkCUDAError(cuStreamWriteValue32(stream, writeFlag, WriteFlag_ImageWritten, CU_STREAM_WRITE_VALUE_DEFAULT),
+        "An error occurred while issuing a write to the writeFlag");
 
     timer.endWritingImageEvent(stream);
 }
