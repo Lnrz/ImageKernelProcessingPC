@@ -17,15 +17,20 @@ struct TaskData {
 };
 
 void updateTaskData(const Task&  task, const int halfSize, TaskData& data) {
-    if (data.inImage != task.image) {
+    const bool isSameImage{ data.inImage == task.image };
+    const bool isSamePaddedImage{ isSameImage && data.padding == task.padding && data.halfSize == halfSize };
+
+    if (!isSameImage) {
         if (data.inImage) data.inImage->unload();
         data.inImage = task.image;
         data.inImage->load();
     }
-    data.padding = task.padding;
-    data.halfSize = halfSize;
-    data.inPaddedImage = (data.padding == PaddingMode::None) ?
-    PaddedImage{} : PaddedImage{*data.inImage, data.padding, data.halfSize};
+    if (!isSamePaddedImage) {
+        data.padding = task.padding;
+        data.halfSize = halfSize;
+        data.inPaddedImage = (data.padding == PaddingMode::None) ?
+        PaddedImage{} : PaddedImage{*data.inImage, data.padding, data.halfSize};
+    }
 
     int outImageWidth{ data.inImage->getWidth() };
     int outImageHeight{ data.inImage->getHeight() };
