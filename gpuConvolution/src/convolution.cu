@@ -56,7 +56,7 @@ __device__ float padData(const CudaConvolutionData& data, int loadX, int loadY, 
     }
 }
 
-__device__ void loadDataToSharedMemory(const CudaConvolutionData& data, float* cache) {
+__device__ void loadDataToSharedMemory(const CudaConvolutionData& data, float* cache, const int cacheRowSize) {
     // load data into shared memory
     // SOURCEXY coordinate del primo channel da caricare, se negative va usato il padding
     // Le coordinate vanno pensate come in riferimento all'immagine non paddata
@@ -69,15 +69,11 @@ __device__ void loadDataToSharedMemory(const CudaConvolutionData& data, float* c
         sourceY + data.cacheHeight,
         (data.padding == PaddingMode::None) ? data.inputImageHeight : data.inputImageHeight + data.halfSize
     )};
-    const int actualCacheRowSize{ min(
-        data.cacheRowSize,
-        static_cast<int>(data.outputImageRowSize - blockDim.x * blockIdx.x + 2 * data.halfSize * data.channels)
-    )};
 
     for (int i{ 0 }; i < data.loadingSteps; i++) {
         const int increment{ i * data.channelsPerLoad + static_cast<int>(threadIdx.x + blockDim.x * threadIdx.y) };
-        const int incrementX{ increment % actualCacheRowSize };
-        const int incrementY{ increment / actualCacheRowSize };
+        const int incrementX{ increment % cacheRowSize };
+        const int incrementY{ increment / cacheRowSize };
         const int loadX{ sourceX + incrementX };
         const int loadY{ sourceY + incrementY };
         if (loadY >= maxY) continue;
@@ -92,13 +88,13 @@ __device__ void loadDataToSharedMemory(const CudaConvolutionData& data, float* c
     }
 }
 
-__device__ float convolute(const CudaConvolutionData& data, const float* cache) {
+__device__ float convolute(const CudaConvolutionData& data, const float* cache, const int cacheRowSize) {
     float outputChannel{ 0.f };
 
-    const int inputIndex{ static_cast<int>(threadIdx.x + threadIdx.y * data.cacheRowSize) };
+    const int inputIndex{ static_cast<int>(threadIdx.x + threadIdx.y * cacheRowSize) };
     for (int j{ 0 }; j < data.kernelSize; j++) {
         for (int i{ 0 }; i < data.kernelSize; i++) {
-            outputChannel += cache[inputIndex + i * data.channels + j * data.cacheRowSize]
+            outputChannel += cache[inputIndex + i * data.channels + j * cacheRowSize]
                            * deviceFilters[data.filterOffset + i + j * data.kernelSize];
         }
     }
@@ -109,11 +105,15 @@ __device__ float convolute(const CudaConvolutionData& data, const float* cache) 
 __global__ void cudaKernelConvolution(CudaConvolutionData data) {
     extern __shared__ float cache[];
 
-    loadDataToSharedMemory(data, cache);
+    const int actualCacheRowSize{ min(
+        data.cacheRowSize,
+        static_cast<int>(data.outputImageRowSize - blockDim.x * blockIdx.x + 2 * data.halfSize * data.channels)
+    )};
+    loadDataToSharedMemory(data, cache, actualCacheRowSize);
     __syncthreads();
     const int outputX{ static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x) };
     const int outputY{ static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y) };
     const int outputIndex{ outputX + outputY * data.outputImageRowSize };
     if (outputX < data.outputImageRowSize && outputY < data.outputImageHeight)
-        data.output[outputIndex] = convolute(data, cache);
+        data.output[outputIndex] = convolute(data, cache, actualCacheRowSize);
 }
