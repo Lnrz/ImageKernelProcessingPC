@@ -4,25 +4,30 @@
 #include "convolution.cuh"
 #include "utilities.cuh"
 
-void loadImagesToStagingBuffer(float *stagingBuffer, volatile uint32_t *loadFlag, const std::vector<std::shared_ptr<Image>> &images) {
-    for (const auto& image : images) {
-        while (*loadFlag != LoadFlag_Empty) {}
+void loadImagesToStagingBuffer(float *stagingBuffer, volatile uint32_t *loadFlag, const std::vector<Task>& tasks, CudaTimer& timer) {
+    std::shared_ptr<Image> prevImage{ nullptr };
+    for (uint32_t i{ 0 }; const auto& task : tasks) {
+        if (task.image != prevImage) {
+            prevImage = task.image;
+            while(*loadFlag != LoadFlag_Empty) {}
 
-        nvtx3::scoped_range loadingMarker{ "Loading image data to staging buffer" };
-        image->load();
-        const auto imageSize{ static_cast<size_t>(image->getWidth() * image->getHeight() * image->getChannels()) };
-        std::copy_n(image->data(), imageSize, stagingBuffer);
-        *loadFlag = LoadFlag_ImageLoaded;
-        image->unload();
+            timer.startLoadingImage(i);
+            nvtx3::scoped_range loadingMarker{ "Loading image data to staging buffer" };
+            task.image->load();
+            const auto imageSize{ static_cast<size_t>(task.image->getWidth() * task.image->getHeight() * task.image->getChannels()) };
+            std::copy_n(task.image->data(), imageSize, stagingBuffer);
+            *loadFlag = LoadFlag_ImageLoaded;
+            task.image->unload();
+        }
+        i++;
     }
 }
 
-void loadImageToGPU(cudaStream_t stream, InputBuffer& buffer, const std::shared_ptr<Image>& image, float* stagingPtr, CUdeviceptr loadFlag, CudaTimer& timer) {
+void loadImageToGPU(cudaStream_t stream, InputBuffer& buffer, const std::shared_ptr<Image>& image, float* stagingPtr, CUdeviceptr loadFlag) {
     auto& inputSlot{ buffer.getSlot() };
     inputSlot.image = image;
     inputSlot.stagingPtr = stagingPtr;
 
-    timer.startLoadingImageEvent(stream);
     checkCUDAError(cuStreamWaitValue32(stream, loadFlag, LoadFlag_ImageLoaded, CU_STREAM_WAIT_VALUE_EQ),
         "An error occurred while issuing a wait on the loadFlag");
     checkCUDAError(cudaStreamWaitEvent(stream, inputSlot.executionFinished),
@@ -40,7 +45,7 @@ void loadImageToGPU(cudaStream_t stream, InputBuffer& buffer, const std::shared_
 
 
 
-DetailedTaskInfo getDetailedTaskInfo(const Task& task, const std::vector<Filter>& filters, const std::vector<int>& offsets, const std::filesystem::path& outputFolder, const int tasksCount) {
+DetailedTaskInfo getDetailedTaskInfo(const Task& task, const std::vector<Filter>& filters, const std::vector<int>& offsets) {
     const auto inputWidth{ task.image->getWidth() };
     const auto inputHeight{ task.image->getHeight() };
     const auto filterIndex{ static_cast<FilterTypeInt>(task.filter) };
@@ -60,7 +65,7 @@ DetailedTaskInfo getDetailedTaskInfo(const Task& task, const std::vector<Filter>
 
 
 
-void convoluteImage(cudaStream_t stream, InputBufferSlot& inSlot, OutputBufferSlot& outSlot, dim3 blockSize, const DetailedTaskInfo& info, CudaTimer& timer) {
+void convoluteImageOnGPU(cudaStream_t stream, InputBufferSlot& inSlot, OutputBufferSlot& outSlot, dim3 blockSize, const DetailedTaskInfo& info, CudaTimer& timer) {
     checkCUDAError(cudaStreamWaitEvent(stream, inSlot.transferComplete),
         "An error occurred while issuing a wait on the transferComplete event of an input slot");
     checkCUDAError(cudaStreamWaitEvent(stream, outSlot.transferComplete),
@@ -102,9 +107,9 @@ void convoluteImage(cudaStream_t stream, InputBufferSlot& inSlot, OutputBufferSl
 }
 
 
-void writeImagesToDisk(float* floatWriteBuffer, uint8_t* uintWriteBuffer, volatile uint32_t* writeFlag, const std::vector<Task>& tasks, const std::vector<Filter>& filters, const std::filesystem::path& outputFolder) {
+void writeImagesToDisk(float* floatWriteBuffer, uint8_t* uintWriteBuffer, volatile uint32_t* writeFlag, const std::vector<Task>& tasks, const std::vector<Filter>& filters, const std::filesystem::path& outputFolder, CudaTimer& timer) {
     const auto tasksCount{ tasks.size() };
-    for (uint32_t i{ 1 }; const auto& task : tasks) {
+    for (uint32_t i{ 0 }; const auto& task : tasks) {
         const auto halfSize{ filters[static_cast<FilterTypeInt>(task.filter)].halfSize };
         const auto outputImageWidth{ task.padding == PaddingMode::None ?
             task.image->getWidth() - 2 * halfSize : task.image->getWidth() };
@@ -126,12 +131,13 @@ void writeImagesToDisk(float* floatWriteBuffer, uint8_t* uintWriteBuffer, volati
                 uintWriteBuffer);
 
         *writeFlag = WriteFlag_Empty;
-        std::osyncstream{ std::cout } << i << "/" << tasksCount << " images processed\r";
+        timer.endWritingImage(i);
         i++;
+        std::osyncstream{ std::cout } << i << "/" << tasksCount << " images processed\r";
     }
 }
 
-void writeImage(cudaStream_t stream, OutputBufferSlot& outSlot, const DetailedTaskInfo& info, float* writingSlot, CUdeviceptr writeFlag, CudaTimer& timer) {
+void writeImageFromGPU(cudaStream_t stream, OutputBufferSlot& outSlot, const DetailedTaskInfo& info, float* writingSlot, CUdeviceptr writeFlag) {
     checkCUDAError(cudaStreamWaitEvent(stream, outSlot.executionFinished),
         "An error occurred while issuing a wait on the executionFinished event of an output slot");
     checkCUDAError(cuStreamWaitValue32(stream, writeFlag, WriteFlag_Empty, CU_STREAM_WAIT_VALUE_EQ),
@@ -145,5 +151,4 @@ void writeImage(cudaStream_t stream, OutputBufferSlot& outSlot, const DetailedTa
         "An error occurred while recording the transferComplete event of an output slot");
     checkCUDAError(cuStreamWriteValue32(stream, writeFlag, WriteFlag_ImageWritten, CU_STREAM_WRITE_VALUE_DEFAULT),
         "An error occurred while issuing a write to the writeFlag");
-    timer.endWritingImageEvent(stream);
 }

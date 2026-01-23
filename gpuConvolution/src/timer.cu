@@ -13,13 +13,12 @@ CudaTimer::CudaTimer(const size_t tasks, const bool enable, const dim3 blockSize
 
     convolutionTimes.reserve(tasks);
     processingTimes.reserve(tasks);
+    tasksTimePoints.resize(tasks);
     events.resize(tasks);
     for (constexpr auto errorMsg{ "An error occurred while creating the timing events"sv };
         auto& event : events) {
-        checkCUDAError(cudaEventCreate(&event.startLoading), errorMsg);
         checkCUDAError(cudaEventCreate(&event.startConvolution), errorMsg);
         checkCUDAError(cudaEventCreate(&event.endConvolution), errorMsg);
-        checkCUDAError(cudaEventCreate(&event.endWriting), errorMsg);
     }
 }
 
@@ -29,65 +28,74 @@ CudaTimer::~CudaTimer() {
 
     for (constexpr auto errorMsg{ "An error occurred while destroying the timing events"sv };
          auto& event : events) {
-        checkCUDAError(cudaEventDestroy(event.startLoading), errorMsg);
         checkCUDAError(cudaEventDestroy(event.startConvolution), errorMsg);
         checkCUDAError(cudaEventDestroy(event.endConvolution), errorMsg);
-        checkCUDAError(cudaEventDestroy(event.endWriting), errorMsg);
     }
 }
 
 void CudaTimer::startingProgram() {
-    programStart = std::chrono::steady_clock::now();
-}
-
-void CudaTimer::startLoadingImageEvent(cudaStream_t stream) {
     if (!enable) return;
 
-    checkCUDAError(cudaEventRecord(events[currentTask].startLoading, stream),
-        "An error occurred while registering a loading image event for timing");
+    programStart = Clock::now();
+}
+
+void CudaTimer::startLoadingImage(const size_t taskIndex) {
+    if (!enable) return;
+
+    tasksTimePoints[taskIndex].startLoading = Clock::now();
 }
 
 void CudaTimer::startConvolutingImageEvent(cudaStream_t stream) {
     if (!enable) return;
 
-    checkCUDAError(cudaEventRecord(events[currentTask].startConvolution, stream),
+    checkCUDAError(cudaLaunchHostFunc(stream, startConvolutingImageCallback, &tasksTimePoints[currentStreamTask].startConvolution),
+        "An error occurred while scheduling a host function for timing");
+    checkCUDAError(cudaEventRecord(events[currentStreamTask].startConvolution, stream),
         "An error occurred while registering a convolution start event for timing");
 }
 
 void CudaTimer::endConvolutingImageEvent(cudaStream_t stream) {
     if (!enable) return;
 
-    checkCUDAError(cudaEventRecord(events[currentTask].endConvolution, stream),
+    checkCUDAError(cudaEventRecord(events[currentStreamTask].endConvolution, stream),
         "An error occurred while registering a convolution end event for timing");
+
+    currentStreamTask++;
 }
 
-void CudaTimer::endWritingImageEvent(cudaStream_t stream) {
+void CudaTimer::endWritingImage(const size_t taskIndex) {
     if (!enable) return;
 
-    checkCUDAError(cudaEventRecord(events[currentTask].endWriting, stream),
-        "An error occurred while registering an image written event for timing");
-    currentTask++;
+    tasksTimePoints[taskIndex].endWriting = Clock::now();
 }
 
 void CudaTimer::endingProgram() {
-    programEnd = std::chrono::steady_clock::now();
+    if (!enable) return;
+
+    programEnd = Clock::now();
 }
 
 void CudaTimer::writeLog(const std::filesystem::path& path) {
     if (!enable) return;
-    using namespace  std::string_view_literals;
+    using namespace std::string_view_literals;
+    using std::chrono::duration_cast;
 
     for (constexpr auto errorMsg{ "An error occurred while measuring elapsed time between events"sv };
         const auto& event : events) {
-        float convolutionTime, processingTime;
+        float convolutionTime;
         checkCUDAError(cudaEventElapsedTime(&convolutionTime, event.startConvolution, event.endConvolution), errorMsg);
-        checkCUDAError(cudaEventElapsedTime(&processingTime, event.startLoading, event.endWriting), errorMsg);
         convolutionTimes.push_back(convolutionTime);
+        }
+    for (const auto& timePoints : tasksTimePoints) {
+        const auto processingTime{ timePoints.startLoading != TimePoint{} ?
+            duration_cast<Duration>(timePoints.endWriting - timePoints.startLoading).count() / 1000.f :
+            duration_cast<Duration>(timePoints.endWriting - timePoints.startConvolution).count() / 1000.f
+        };
         processingTimes.push_back(processingTime);
     }
 
     const auto programTime{
-        std::chrono::duration_cast<Duration>(programEnd - programStart).count() / 1000.f
+        duration_cast<Duration>(programEnd - programStart).count() / 1000.f
     };
     const auto [minConvolutionTime, maxConvolutionTime] = std::ranges::minmax(convolutionTimes);
     const auto [minProcessingTime, maxProcessingTime] = std::ranges::minmax(processingTimes);
@@ -115,8 +123,8 @@ void CudaTimer::writeLog(const std::filesystem::path& path) {
     };
 
     std::ofstream logFile{ path, std::ios::app };
-    std::time_t t = std::time(nullptr);
-    std::tm tm = *std::localtime(&t);
+    std::time_t t{ std::time(nullptr) };
+    std::tm tm{ *std::localtime(&t) };
     logFile
     << std::put_time(&tm, "Date:%Y-%m-%d  Time:%H:%M")
     << std::format("  Tasks:{}  ProgramTime:{}ms\n",
@@ -128,4 +136,9 @@ void CudaTimer::writeLog(const std::filesystem::path& path) {
     << std::format("ProcessingTimes:[ Mean:{}ms  Std:{}ms  Max:{}ms  Min:{}ms ]\n",
         meanProcessingTime, stdProcessingTime, maxProcessingTime, minProcessingTime)
     << std::endl;
+}
+
+void CudaTimer::startConvolutingImageCallback(void* userData) {
+    auto* timePoint{ static_cast<TimePoint*>(userData) };
+    *timePoint = Clock::now();
 }

@@ -94,27 +94,22 @@ int main(int argc ,char* argv[]) {
     InputBuffer inputBuffer{ static_cast<float*>(buffersBasePtr), inputSlots, slotSizeInChannels };
     OutputBuffer outputBuffer{ static_cast<float*>(buffersBasePtr) + inputSlots * slotSizeInChannels, outputSlots, slotSizeInChannels };
 
-    std::vector<std::shared_ptr<Image>> imagesToLoad;
-    std::ranges::unique_copy(tasks | std::views::transform(&Task::image), std::back_inserter(imagesToLoad));
-    std::jthread imageLoaderThread{ loadImagesToStagingBuffer,
-        stagingSlotPtr, loadFlagPtr, std::cref(imagesToLoad) };
-    std::jthread imageWriterThread{ writeImagesToDisk,
-        writingSlotPtr, uintImage.data(), writeFlagPtr, std::cref(tasks), std::cref(filters), std::cref(outputFolder) };
-
-    const int tasksCount{ static_cast<int>(tasks.size()) };
     CudaTimer timer{ tasks.size(), enableStats, blockSize, inputSlots, outputSlots };
+    std::jthread imageLoaderThread{ loadImagesToStagingBuffer,
+        stagingSlotPtr, loadFlagPtr, std::cref(tasks), std::ref(timer) };
+    std::jthread imageWriterThread{ writeImagesToDisk,
+        writingSlotPtr, uintImage.data(), writeFlagPtr, std::cref(tasks), std::cref(filters), std::cref(outputFolder), std::ref(timer) };
+
     timer.startingProgram();
     for (const auto& task : tasks) {
-        const bool wasImageLoaded{ inputBuffer.isImageLoaded(task.image) };
-        if (!wasImageLoaded) {
-            loadImageToGPU(hostDeviceStream, inputBuffer, task.image, stagingSlotPtr, deviceLoadFlagPtr, timer);
+        if (!inputBuffer.isImageLoaded(task.image)) {
+            loadImageToGPU(hostDeviceStream, inputBuffer, task.image, stagingSlotPtr, deviceLoadFlagPtr);
         }
         auto& inputSlot{ inputBuffer.getImageSlot(task.image) };
         auto& outputSlot{ outputBuffer.getSlot() };
-        const auto taskInfo{ getDetailedTaskInfo(task, filters, filtersOffsets, outputFolder, tasksCount) };
-        if (wasImageLoaded) timer.startLoadingImageEvent(convolutionStream);
-        convoluteImage(convolutionStream, inputSlot, outputSlot, blockSize, taskInfo, timer);
-        writeImage(deviceHostStream, outputSlot, taskInfo, writingSlotPtr, deviceWriteFlagPtr, timer);
+        const auto taskInfo{ getDetailedTaskInfo(task, filters, filtersOffsets) };
+        convoluteImageOnGPU(convolutionStream, inputSlot, outputSlot, blockSize, taskInfo, timer);
+        writeImageFromGPU(deviceHostStream, outputSlot, taskInfo, writingSlotPtr, deviceWriteFlagPtr);
     }
 
     checkCUDAError(cudaDeviceSynchronize(), "An error occurred while waiting for the device to finish");
@@ -123,7 +118,7 @@ int main(int argc ,char* argv[]) {
     timer.writeLog(outputFolder / "log.txt");
     std::cout << std::endl;
     for (auto stream : { hostDeviceStream, convolutionStream, deviceHostStream }) {
-        checkCUDAError(cudaStreamDestroy(stream), "An error occured while destroying streams");
+        checkCUDAError(cudaStreamDestroy(stream), "An error occurred while destroying streams");
     }
     checkCUDAError(cudaFreeHost(pageLockedBasePtr), "An error occurred while freeing page locked memory");
     checkCUDAError(cudaFree(buffersBasePtr), "An error occurred while freeing GPU memory");

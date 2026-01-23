@@ -3,15 +3,11 @@
 
 #include <filesystem>
 
-struct TimingEvents {
-    cudaEvent_t startLoading, endWriting;
-    cudaEvent_t startConvolution, endConvolution;
-};
-
 class CudaTimer {
 public:
+    using Clock = std::chrono::steady_clock;
     using Duration = std::chrono::microseconds;
-    using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
+    using TimePoint = std::chrono::time_point<Clock>;
 
     CudaTimer(size_t tasks, bool enable, dim3 blockSize, size_t inputSlots, size_t outputSlots);
     CudaTimer(const CudaTimer& oth) = delete;
@@ -22,20 +18,35 @@ public:
     CudaTimer& operator=(CudaTimer&& oth) = delete;
 
     void startingProgram();
-    void startLoadingImageEvent(cudaStream_t stream);
+    void startLoadingImage(size_t taskIndex);
     void startConvolutingImageEvent(cudaStream_t stream);
     void endConvolutingImageEvent(cudaStream_t stream);
-    void endWritingImageEvent(cudaStream_t stream);
+    void endWritingImage(size_t taskIndex);
     void endingProgram();
 
     void writeLog(const std::filesystem::path& path);
 
 private:
+    struct TimingEvents {
+        cudaEvent_t startConvolution;
+        cudaEvent_t endConvolution;
+    };
+
+    struct TimingTimePoints {
+        TimePoint startLoading{};
+        TimePoint startConvolution{};
+        TimePoint endWriting{};
+    };
+
+    static
+    void startConvolutingImageCallback(void* userData);
+
     const size_t tasks;
     const size_t blockX, blockY;
     const size_t inputSlots, outputSlots;
-    size_t currentTask{ 0 };
+    size_t currentStreamTask{ 0 };
     const bool enable;
+    std::vector<TimingTimePoints> tasksTimePoints;
     std::vector<TimingEvents> events;
     std::vector<float> convolutionTimes;
     std::vector<float> processingTimes;
