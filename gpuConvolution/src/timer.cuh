@@ -38,9 +38,6 @@ private:
         TimePoint endWriting{};
     };
 
-    static
-    void startConvolutingImageCallback(void* userData);
-
     const size_t tasks;
     const size_t blockX, blockY;
     const size_t inputSlots, outputSlots;

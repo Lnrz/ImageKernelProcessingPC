@@ -48,7 +48,11 @@ void CudaTimer::startLoadingImage(const size_t taskIndex) {
 void CudaTimer::startConvolutingImageEvent(cudaStream_t stream) {
     if (!enable) return;
 
-    checkCUDAError(cudaLaunchHostFunc(stream, startConvolutingImageCallback, &tasksTimePoints[currentStreamTask].startConvolution),
+    checkCUDAError(cudaLaunchHostFunc(stream,
+        [](void* userData) {
+            auto* timepoint{ static_cast<TimePoint*>(userData) };
+            *timepoint = Clock::now();
+        }, &tasksTimePoints[currentStreamTask].startConvolution),
         "An error occurred while scheduling a host function for timing");
     checkCUDAError(cudaEventRecord(events[currentStreamTask].startConvolution, stream),
         "An error occurred while registering a convolution start event for timing");
@@ -136,9 +140,4 @@ void CudaTimer::writeLog(const std::filesystem::path& path) {
     << std::format("ProcessingTimes:[ Mean:{}ms  Std:{}ms  Max:{}ms  Min:{}ms ]\n",
         meanProcessingTime, stdProcessingTime, maxProcessingTime, minProcessingTime)
     << std::endl;
-}
-
-void CudaTimer::startConvolutingImageCallback(void* userData) {
-    auto* timePoint{ static_cast<TimePoint*>(userData) };
-    *timePoint = Clock::now();
 }
