@@ -115,7 +115,7 @@ int main(int argc ,char* argv[]) {
     checkCUDAError(cudaDeviceSynchronize(), "An error occurred while waiting for the device to finish");
     imageWriterThread.join();
     timer.endingProgram();
-    timer.writeLog(outputFolder / "log.txt");
+    timer.writeLog(outputFolder);
     std::cout << std::endl;
     for (auto stream : { hostDeviceStream, convolutionStream, deviceHostStream }) {
         checkCUDAError(cudaStreamDestroy(stream), "An error occurred while destroying streams");

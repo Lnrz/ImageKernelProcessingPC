@@ -1,6 +1,7 @@
 #include "timer.cuh"
 #include <numeric>
 #include <fstream>
+#include <span>
 #include "utilities.cuh"
 
 CudaTimer::CudaTimer(const size_t tasks, const bool enable, const dim3 blockSize, const size_t inputSlots, const size_t outputSlots)
@@ -79,7 +80,7 @@ void CudaTimer::endingProgram() {
     programEnd = Clock::now();
 }
 
-void CudaTimer::writeLog(const std::filesystem::path& path) {
+void CudaTimer::writeLog(const std::filesystem::path& folder) {
     if (!enable) return;
     using namespace std::string_view_literals;
     using std::chrono::duration_cast;
@@ -126,7 +127,7 @@ void CudaTimer::writeLog(const std::filesystem::path& path) {
         )
     };
 
-    std::ofstream logFile{ path, std::ios::app };
+    std::ofstream logFile{ folder / "log.txt", std::ios::app };
     std::time_t t{ std::time(nullptr) };
     std::tm tm{ *std::localtime(&t) };
     logFile
@@ -140,4 +141,10 @@ void CudaTimer::writeLog(const std::filesystem::path& path) {
     << std::format("ProcessingTimes:[ Mean:{}ms  Std:{}ms  Max:{}ms  Min:{}ms ]\n",
         meanProcessingTime, stdProcessingTime, maxProcessingTime, minProcessingTime)
     << std::endl;
+
+    std::ofstream convolutionFile{ folder / "convolutionTimes.bin", std::ios::binary | std::ios::app };
+    convolutionFile.write( reinterpret_cast<char*>(convolutionTimes.data()),convolutionTimes.size() * sizeof(float));
+
+    std::ofstream processingFile{ folder / "processingTimes.bin", std::ios::binary | std::ios::app };
+    processingFile.write( reinterpret_cast<char*>(processingTimes.data()),processingTimes.size() * sizeof(float));
 }

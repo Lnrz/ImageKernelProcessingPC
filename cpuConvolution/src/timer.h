@@ -18,7 +18,7 @@ public:
     void imageWritten();
     void endingProgram();
 
-    void writeLog(const std::filesystem::path& path) const;
+    void writeLog(const std::filesystem::path& folder) const;
 
 private:
     const size_t tasks{};

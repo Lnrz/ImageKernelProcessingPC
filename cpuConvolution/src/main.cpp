@@ -103,7 +103,7 @@ int main(int argc, char* argv[]) {
     }
     if (enableStats) {
         timer.endingProgram();
-        timer.writeLog(outputFolder / "log.txt");
+        timer.writeLog(outputFolder);
     }
     std::cout << std::endl;
 

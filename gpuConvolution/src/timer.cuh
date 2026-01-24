@@ -24,7 +24,7 @@ public:
     void endWritingImage(size_t taskIndex);
     void endingProgram();
 
-    void writeLog(const std::filesystem::path& path);
+    void writeLog(const std::filesystem::path& folder);
 
 private:
     struct TimingEvents {

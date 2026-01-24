@@ -43,7 +43,7 @@ void Timer::endingProgram() {
     programTime = std::chrono::duration_cast<Duration>(programEnd - programStart).count() / conversionFactor;
 }
 
-void Timer::writeLog(const std::filesystem::path& path) const {
+void Timer::writeLog(const std::filesystem::path& folder) const {
     const auto [minConvolutionTime, maxConvolutionTime] = std::ranges::minmax(convolutionTimes);
     const auto [minProcessingTime, maxProcessingTime] = std::ranges::minmax(processingTimes);
     const auto meanConvolutionTime {
@@ -69,7 +69,7 @@ void Timer::writeLog(const std::filesystem::path& path) const {
         )
     };
 
-    std::ofstream logFile{ path, std::ios::app };
+    std::ofstream logFile{ folder / "log.txt", std::ios::app };
     logFile
     << std::format("Date:{0:%F}  Time:{0:%R}  Tasks:{1}  ProgramTime:{2}ms\n",
         std::chrono::system_clock::now(), tasks, programTime)
@@ -79,4 +79,10 @@ void Timer::writeLog(const std::filesystem::path& path) const {
     << std::format("ProcessingTimes:[ Mean:{}ms  Std:{}ms  Max:{}ms  Min:{}ms ]\n",
         meanProcessingTime, stdProcessingTime, maxProcessingTime, minProcessingTime)
     << std::endl;
+
+    std::ofstream convolutionFile{ folder / "convolutionTimes.bin", std::ios::binary | std::ios::app };
+    convolutionFile.write( reinterpret_cast<const char*>(convolutionTimes.data()),convolutionTimes.size() * sizeof(float));
+
+    std::ofstream processingFile{ folder / "processingTimes.bin", std::ios::binary | std::ios::app };
+    processingFile.write( reinterpret_cast<const char*>(processingTimes.data()),processingTimes.size() * sizeof(float));
 }
