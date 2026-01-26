@@ -1,3 +1,4 @@
 /.idea/*
 
 cpuConvolution/lib/highway-1.3.0
+common/lib/opencv-4.13.0-windows

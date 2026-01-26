@@ -18,10 +18,12 @@ set(HWY_ENABLE_CONTRIB OFF CACHE BOOL "" FORCE)
 add_subdirectory(lib/highway-1.3.0 EXCLUDE_FROM_ALL)
 
 target_include_directories(cpuKernelConvolution
-        PRIVATE ../common)
+        PRIVATE ../common
+        PRIVATE "${OpenCV_INCLUDE_DIRS}")
 
 target_link_libraries(cpuKernelConvolution
-        PRIVATE hwy)
+        PRIVATE hwy
+        PRIVATE "${OpenCV_LIBS}")
 
 target_compile_options(cpuKernelConvolution PRIVATE
         $<$<AND:${is_release},${is_msvc}>:/O2 /Ob3 /fp:fast /arch:AVX2 /Qvec-report:1 /Gv /favor:INTEL64>)

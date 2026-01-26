@@ -1,4 +1,7 @@
 #include "stream.cuh"
+#include <opencv2/opencv.hpp>
+#include <opencv2/imgproc.hpp>
+#include <fstream>
 #include <nvtx3/nvtx3.hpp>
 #include <syncstream>
 #include "convolution.cuh"
@@ -109,8 +112,13 @@ void convoluteImageOnGPU(cudaStream_t stream, InputBufferSlot& inSlot, OutputBuf
 
 void writeImagesToDisk(float* floatWriteBuffer, uint8_t* uintWriteBuffer, volatile uint32_t* writeFlag, const std::vector<Task>& tasks, const std::vector<Filter>& filters, const std::filesystem::path& outputFolder, CudaTimer& timer) {
     const auto tasksCount{ tasks.size() };
+    std::vector<float> outImageForCV;
+    std::vector<uint8_t> outImageForCVUint;
+    std::vector<float> meanSquaredErrors;
+    std::ofstream validationFile{ outputFolder / "validation.txt", std::ios::app };
     for (uint32_t i{ 0 }; const auto& task : tasks) {
-        const auto halfSize{ filters[static_cast<FilterTypeInt>(task.filter)].halfSize };
+        const auto& filter{ filters[static_cast<FilterTypeInt>(task.filter)] };
+        const auto halfSize{ filter.halfSize };
         const auto outputImageWidth{ task.padding == PaddingMode::None ?
             task.image->getWidth() - 2 * halfSize : task.image->getWidth() };
         const auto outputImageHeight{ task.padding == PaddingMode::None ?
@@ -118,6 +126,54 @@ void writeImagesToDisk(float* floatWriteBuffer, uint8_t* uintWriteBuffer, volati
         const auto imageSize{ outputImageWidth * outputImageHeight * task.image->getChannels() };
 
         while (*writeFlag != WriteFlag_ImageWritten) {}
+
+        const auto inImageWidth{ task.image->getWidth() };
+        const auto inImageHeight{ task.image->getHeight() };
+        const auto imageChannels{ task.image->getChannels() };
+        const auto imageFormat{ imageChannels == 1 ? CV_32F : CV_32FC3 };
+        const auto kernelSize{ 2 * halfSize + 1 };
+        Image inImageCopy{ task.image->getPath() };
+        inImageCopy.load();
+        const auto inImagePtr{ inImageCopy.data() };
+        cv::Mat inImageCV{ inImageHeight, inImageWidth, imageFormat, inImagePtr };
+        outImageForCV.resize(inImageWidth * inImageHeight * imageChannels);
+        outImageForCVUint.resize(inImageWidth * inImageHeight * imageChannels);
+        cv::Mat outImageCV{ inImageHeight, inImageWidth, imageFormat, outImageForCV.data() };
+        cv::Mat kernel{ kernelSize, kernelSize, CV_32F, const_cast<float*>(filter.data.data()) };
+        const auto borderType{ task.padding == PaddingMode::Mirror ? cv::BORDER_REFLECT : cv::BORDER_CONSTANT  };
+        cv::filter2D(inImageCV, outImageCV, -1, kernel, cv::Point(-1,-1), 0, borderType );
+        float mse{ 0 };
+        const auto outImageChannelsNum{ imageSize };
+        if (task.padding != PaddingMode::None) {
+            for (auto channel{ 0 }; channel < outImageChannelsNum; channel++) {
+                mse += std::powf(
+                    std::clamp(floatWriteBuffer[channel], 0.f, 1.f) -
+                    std::clamp(outImageForCV[channel], 0.f, 1.f)
+                    , 2.f);
+            }
+        } else {
+            const auto inImageRowSize{ inImageWidth * imageChannels };
+            const auto outImageRowSize{ outputImageWidth * imageChannels };
+            for (auto row{ 0 }; row < outputImageHeight; row++) {
+                for (auto channel{ 0 }; channel < outImageRowSize; channel++) {
+                    mse += std::powf(
+                        std::clamp(floatWriteBuffer[row * outImageRowSize + channel], 0.f, 1.f) -
+                        std::clamp(outImageForCV[(halfSize + row) * inImageRowSize + halfSize * imageChannels + channel], 0.f, 1.f),
+                        2.f
+                     );
+                }
+            }
+        }
+        *writeFlag = WriteFlag_Empty;
+        mse /= static_cast<float>(outImageChannelsNum);
+        meanSquaredErrors.push_back(mse);
+        validationFile << std::format("{} {}:{} MSE {}\n",
+            inImageCopy.getPath().filename().string(),
+            getStringFromFilterType(task.filter), getStringFromPaddingMode(task.padding),
+            mse);
+        i++;
+        std::osyncstream{ std::cout } << i << "/" << tasksCount << " images processed\r";
+        continue;
 
         nvtx3::scoped_range writingMarker{ "Writing image to disk" };
         floatImageToUIntImage(
@@ -130,11 +186,16 @@ void writeImagesToDisk(float* floatWriteBuffer, uint8_t* uintWriteBuffer, volati
                 outputImageWidth, outputImageHeight, task.image->getChannels(),
                 uintWriteBuffer);
 
-        *writeFlag = WriteFlag_Empty;
         timer.endWritingImage(i);
-        i++;
-        std::osyncstream{ std::cout } << i << "/" << tasksCount << " images processed\r";
     }
+    float meanMSE{ 0.f };
+    for (auto mse : meanSquaredErrors) {
+        meanMSE += mse;
+    }
+    meanMSE /= meanSquaredErrors.size();
+    validationFile << std::format("Mean MSE {}\n\n",meanMSE);
+    std::ofstream meanSquaredErrorsFile{ outputFolder / "meanSquaredErrors.bin", std::ios::binary | std::ios::app };
+    meanSquaredErrorsFile.write(reinterpret_cast<char*>(meanSquaredErrors.data()), meanSquaredErrors.size() * sizeof(float));
 }
 
 void writeImageFromGPU(cudaStream_t stream, OutputBufferSlot& outSlot, const DetailedTaskInfo& info, float* writingSlot, CUdeviceptr writeFlag) {

@@ -21,10 +21,12 @@ set_target_properties(gpuKernelConvolution
 
 find_package(CUDAToolkit REQUIRED)
 target_link_libraries(gpuKernelConvolution
-        PRIVATE CUDA::cuda_driver)
+        PRIVATE CUDA::cuda_driver
+        PRIVATE "${OpenCV_LIBS}")
 
 target_include_directories(gpuKernelConvolution
-        PRIVATE ../common)
+        PRIVATE ../common
+        PRIVATE "${OpenCV_INCLUDE_DIRS}")
 
 target_compile_options(gpuKernelConvolution PRIVATE
         $<${is_cuda}:-rdc=true -dlto -restrict -lineinfo -src-in-ptx>
