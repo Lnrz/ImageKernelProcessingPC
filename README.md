@@ -56,8 +56,8 @@ target_compile_options(gpuKernelConvolution PRIVATE
    (make sure to build in "Release" mode, how to do it depends on which generator you use)
 ```sh
 cmake -B build
-cmake --build build --target cpuConvolution
-cmake --build build --target gpuConvolution
+cmake --build build --target cpuKernelConvolution
+cmake --build build --target gpuKernelConvolution
 ```
 
 
