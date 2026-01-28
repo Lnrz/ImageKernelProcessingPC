@@ -2,14 +2,6 @@
 
 __constant__ float deviceFilters[getFiltersSize()];
 
-/*
- * Gli indici dei thread si rifanno ai canali che calcolano
- * TUTTI I THREAD CALCOLANO CANALI
- *
- * Tutti i thread caricano i dati
- *
- * Le dimensioni dei block sono in canali!
- */
 
 __device__ float padData(const CudaConvolutionData& data, int loadX, int loadY, bool isOutOfBoundsX, bool isOutOfBoundsY) {
     switch (data.padding) {
@@ -17,13 +9,25 @@ __device__ float padData(const CudaConvolutionData& data, int loadX, int loadY, 
             return 0.f;
         }
         case PaddingMode::Mirror: {
+            // mirrorLoadX is the x coordinate of the channel to load
             int mirrorLoadX{ loadX };
             if (isOutOfBoundsX) {
+                // pixelX is the x coordinate of the pixel to which the channel of x coordinate loadX belongs
+                // in case the pixel x coordinate is negative we map it to a corresponding positive one
+                // -1, -2, -3 correspond to 2width-1, 2width, 2width+1
+                // this is done in order not to have to differentiate between negative and positive out of border coordinates
                 const int pixelX{ loadX < 0 ?
                     2 * data.inputImageWidth - 2 + abs((loadX - data.channels + 1) / data.channels) :
                     loadX / data.channels };
+                // channelOffset is the channel index to which the channel of x coordinate loadX corresponds
+                // red would be 0, green 1, blue 2
+                // if the image is grayscale it is always 0
                 const int channelOffset{ loadX < 0 ?
                     data.channels - 1 + ((loadX + 1) % data.channels) : loadX % data.channels };
+                // loadPixelX is the pixel x coordinate inside the input image
+                // which corresponds to the positive but out of bounds pixel x coordinate pixelX
+                // width, width+1, width+2 would result in width-2, width-3, width-4
+                // 2width-1, 2width, 2width+1 would result in 1, 2, 3
                 const int loadPixelX{ ((pixelX - data.inputImageWidth) / (data.inputImageWidth - 1)) % 2 == 0 ?
                     data.inputImageWidth - 2 - ((pixelX - data.inputImageWidth) % (data.inputImageWidth - 1)) :
                     1 + ((pixelX - data.inputImageWidth) % (data.inputImageWidth - 1)) };
@@ -31,6 +35,8 @@ __device__ float padData(const CudaConvolutionData& data, int loadX, int loadY, 
                 mirrorLoadX = loadPixelX * data.channels + channelOffset;
             }
 
+            // the same comments about the x coordinate are valid for the y coordinate
+            // here there is no channel offset since the channels are interleaved only along the width
             int mirrorLoadY{ loadY };
             if (isOutOfBoundsY) {
                 const int pixelY{ loadY < 0 ?
@@ -57,14 +63,13 @@ __device__ float padData(const CudaConvolutionData& data, int loadX, int loadY, 
 }
 
 __device__ void loadDataToSharedMemory(const CudaConvolutionData& data, float* cache, const int cacheRowSize) {
-    // load data into shared memory
-    // SOURCEXY coordinate del primo channel da caricare, se negative va usato il padding
-    // Le coordinate vanno pensate come in riferimento all'immagine non paddata
-    // di conseguenza possono essere negative o maggiori delle dimensioni dell'immagine di input
+    // coordinates are expressed w.r.t. the input image with (0,0) being the coordinates of the top-left channel
+    // (sourceX,sourceY) are the coordinates of the top-left channel of the neighborhood to load
     const int sourceX{ (data.padding == PaddingMode::None) ? static_cast<int>(blockIdx.x * blockDim.x) :
                       static_cast<int>(blockIdx.x * blockDim.x) - data.halfSize * data.channels };
     const int sourceY{ (data.padding == PaddingMode::None) ? static_cast<int>(blockIdx.y * blockDim.y) :
                       static_cast<int>(blockIdx.y * blockDim.y) - data.halfSize };
+    // maximum y coordinate of the neighborhood to load
     const int maxY{ min(
         sourceY + data.cacheHeight,
         (data.padding == PaddingMode::None) ? data.inputImageHeight : data.inputImageHeight + data.halfSize
@@ -91,6 +96,7 @@ __device__ void loadDataToSharedMemory(const CudaConvolutionData& data, float* c
 __device__ float convolute(const CudaConvolutionData& data, const float* cache, const int cacheRowSize) {
     float outputChannel{ 0.f };
 
+    // inputIndex is the index in shared memory of the channel corresponding to the top-left filter coefficient
     const int inputIndex{ static_cast<int>(threadIdx.x + threadIdx.y * cacheRowSize) };
     for (int j{ 0 }; j < data.kernelSize; j++) {
         for (int i{ 0 }; i < data.kernelSize; i++) {
@@ -105,12 +111,15 @@ __device__ float convolute(const CudaConvolutionData& data, const float* cache, 
 __global__ void cudaKernelConvolution(CudaConvolutionData data) {
     extern __shared__ float cache[];
 
+    // for the border blocks the neighborhood to load is actually smaller
     const int actualCacheRowSize{ min(
         data.cacheRowSize,
         static_cast<int>(data.outputImageRowSize - blockDim.x * blockIdx.x + 2 * data.halfSize * data.channels)
     )};
     loadDataToSharedMemory(data, cache, actualCacheRowSize);
     __syncthreads();
+    // (outputX,outputY) are the coordinates of the channel to which the thread corresponds
+    // expressed w.r.t. the output image
     const int outputX{ static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x) };
     const int outputY{ static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y) };
     const int outputIndex{ outputX + outputY * data.outputImageRowSize };

@@ -218,6 +218,8 @@ void PaddedImage::pad(const Image &image, const PaddingMode mode, const int half
         }
         case PaddingMode::Zero: {
             imageData = std::vector<float>( paddedWidth * paddedHeight * channels);
+            // Copy the original image inside the padded image.
+            // Zero padding is handled by the initialization of the vector.
             for (int i{ 0 }; i < height; i++) {
                 std::copy_n(image.data() + i * width * channels,
                     width * channels,
@@ -228,9 +230,12 @@ void PaddedImage::pad(const Image &image, const PaddingMode mode, const int half
         case PaddingMode::Mirror: {
             imageData = std::vector<float>( paddedWidth * paddedHeight * channels);
             for (int i{ 0 }; i < height; i++) {
+                // Copy the original i-th row of the image inside the padded image
                 std::copy_n(image.data() + i * width * channels,
                     width * channels,
                     imageData.data() + ((paddingHalfSize + i) * paddedWidth + paddingHalfSize) * channels);
+                // This nested loop writes progressively the left and right mirrored pixels.
+                // It starts from the one close to the original image border and goes outwards.
                 for (int j{ 0 }; j < halfSize; j++) {
                     for (int c{ 0 }; c < channels; c++) {
                         imageData[((paddingHalfSize + i) * paddedWidth + paddingHalfSize - 1 - j) * channels + c] =
@@ -240,6 +245,13 @@ void PaddedImage::pad(const Image &image, const PaddingMode mode, const int half
                     }
                 }
             }
+            // This loop fills the remaining upper and lower regions by copying the already filled rows.
+            //
+            // For the upper region it copies the row corresponding to the second row of the original image going downwards
+            // to the last row of the upper region going upwards.
+            //
+            // For the lower region it copies the row corresponding to the second to last of the original image going upwards
+            // to the first row of the lower region going downwards.
             for (int i{ 0 }; i < halfSize; i++) {
                 std::copy_n(imageData.data() + (paddingHalfSize + 1 + i) * paddedWidth * channels,
                     paddedWidth * channels,
@@ -272,5 +284,9 @@ int PaddedImage::getPaddedHeight() const { return paddedHeight; }
 int PaddedImage::getChannels() const { return channels; }
 
 void writeImage(const std::string& path, const int width, const int height, const int channels, const uint8_t* data) {
-    stbi_write_jpg(path.c_str(), width, height, channels, data, 100);
+    if (stbi_write_jpg(path.c_str(), width, height, channels, data, 100) == 0) {
+        std::cerr << "An error occurred while writing the image " << path << std::endl;
+        std::cerr << stbi_failure_reason() << std::endl;
+        exit(-1);
+    }
 }

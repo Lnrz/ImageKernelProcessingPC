@@ -10,12 +10,12 @@ add_executable(cpuKernelConvolution src/main.cpp
         ../common/image.cpp
         ../common/image.h)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lib/highway-1.3.0/cmake")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lib/highway/cmake")
 set(HWY_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_CONTRIB OFF CACHE BOOL "" FORCE)
-add_subdirectory(lib/highway-1.3.0 EXCLUDE_FROM_ALL)
+add_subdirectory(lib/highway EXCLUDE_FROM_ALL)
 
 target_include_directories(cpuKernelConvolution
         PRIVATE ../common)

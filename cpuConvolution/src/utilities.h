@@ -1,6 +1,7 @@
 #ifndef IMAGEKERNELPROCESSINGCUDA_UTILITIES_H
 #define IMAGEKERNELPROCESSINGCUDA_UTILITIES_H
 
+// Print the program usage and exit.
 [[noreturn]]
 void explainProgram();
 

@@ -20,7 +20,7 @@ void checkCUDAError(const CUresult error, const std::string_view msg) {
 [[noreturn]]
 void explainProgram() {
     std::cout << R"(Program usage:
-ImageKernelProcessingCuda.exe inputFolder outputFolder
+gpuKernelConvolution.exe inputFolder outputFolder
 
 inputFolder:
     path to the folder containing the images to process and a tasks.txt file
@@ -46,12 +46,14 @@ SLOTS inNum outNum
 By default they both have 2 slots
 
 WARNING
-Every slot is as big as the largest image.
-Therefore it's advised to process images of roughly the same size together in order not to waste GPU memory.
+Every slot is as big as the largest image
+Therefore it's advised to process images of roughly the same size together in order not to waste GPU memory
 
 To activate statistics write in tasks.txt the line:
 STATS
-The statistics will be written to a log.txt file inside the outputFolder
+The statistics will be written to a log.txt file inside the outputFolder.
+Convolution times will be written in binary as float in convolutionTimes.bin inside the outputFolder
+Task processing times will be written in binary as float in processingTimes.bin inside the outputFolder
 )";
     exit(-1);
 }

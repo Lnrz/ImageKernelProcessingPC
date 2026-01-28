@@ -10,6 +10,9 @@
 #include "stream.cuh"
 
 
+// Load filters coefficients into constant memory.
+//
+// The coefficients are stored in row major order.
 void loadFiltersToConstantMemory(const std::vector<Filter>& filters) {
     std::vector<float> filtersData;
     filtersData.reserve(getFiltersSize());
@@ -19,6 +22,9 @@ void loadFiltersToConstantMemory(const std::vector<Filter>& filters) {
     cudaMemcpyToSymbol(deviceFilters, filtersData.data(), getFiltersSize() * sizeof(float));
 }
 
+// Return the vector of offsets of the filters coefficients in constant memory.
+//
+// The offset of a filter is indexable by its filter type.
 std::vector<int> getFiltersOffsets(const std::vector<Filter>& filters) {
     std::vector<int> offsets{ 0 };
     constexpr auto filtersNum{ static_cast<FilterTypeInt>(FilterType::Num) };
@@ -45,6 +51,8 @@ int main(int argc ,char* argv[]) {
         enableStats
     ] = loadTasks(argv[1]);
 
+    // Sort the tasks by image.
+    // By processing the tasks by image we make sure that every image will be loaded only once on GPU.
     std::ranges::sort(tasks,
         [](const Task& t1, const Task& t2) {
             return t1.image->getPath() < t2.image->getPath();
@@ -69,6 +77,7 @@ int main(int argc ,char* argv[]) {
     ))};
     const size_t slotSizeInChannels{ slotSizeInBytes / sizeof(float) };
 
+    // Allocate page locked memory for the staging buffer, writing buffer, load flag and write flag.
     void* pageLockedBasePtr{ nullptr };
     constexpr size_t pageLockedSlots{ 2 };
     constexpr size_t flagsNum{ 2 };
@@ -88,6 +97,7 @@ int main(int argc ,char* argv[]) {
         "An error occurred while getting the device pointer to the write flag");
     std::vector<uint8_t> uintImage(slotSizeInChannels);
 
+    // Allocate GPU memory for the input and output buffers.
     void* buffersBasePtr{ nullptr };
     checkCUDAError(cudaMalloc(&buffersBasePtr, slotSizeInBytes * (inputSlots + outputSlots)),
         "An error has occurred while allocating device memory");

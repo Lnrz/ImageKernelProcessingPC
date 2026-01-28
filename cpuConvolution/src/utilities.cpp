@@ -4,7 +4,7 @@
 [[noreturn]]
 void explainProgram() {
     std::cout << R"(Program usage:
-ImageKernelProcessing.exe inputFolder outputFolder
+cpuKernelConvolution.exe inputFolder outputFolder
 
 inputFolder:
     path to the folder containing the images to process and a tasks.txt file
@@ -24,6 +24,8 @@ It is possible to specify more filters and paddings for the same image by separa
 To activate statistics write in tasks.txt the line:
 STATS
 The statistics will be written to a log.txt file inside the outputFolder
+Convolution times will be written in binary as float in convolutionTimes.bin inside the outputFolder
+Task processing times will be written in binary as float in processingTimes.bin inside the outputFolder
 
 To not make use of vector instructions write in tasks.txt the line:
 NOVECT

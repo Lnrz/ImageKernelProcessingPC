@@ -1,7 +1,6 @@
 #include "timer.cuh"
 #include <numeric>
 #include <fstream>
-#include <span>
 #include "utilities.cuh"
 
 CudaTimer::CudaTimer(const size_t tasks, const bool enable, const dim3 blockSize, const size_t inputSlots, const size_t outputSlots)
@@ -49,6 +48,8 @@ void CudaTimer::startLoadingImage(const size_t taskIndex) {
 void CudaTimer::startConvolutingImageEvent(cudaStream_t stream) {
     if (!enable) return;
 
+    // We need to record on CPU the timepoint of the convolution start since tasks can skip image loading.
+    // We use this as an alternative starting timepoint for the task processing time calculation.
     checkCUDAError(cudaLaunchHostFunc(stream,
         [](void* userData) {
             auto* timepoint{ static_cast<TimePoint*>(userData) };
@@ -92,6 +93,8 @@ void CudaTimer::writeLog(const std::filesystem::path& folder) {
         convolutionTimes.push_back(convolutionTime);
         }
     for (const auto& timePoints : tasksTimePoints) {
+        // Since some tasks skip image loading we need to check if its timepoint is default constructed.
+        // If it is, use as starting point the start of the image convolution.
         const auto processingTime{ timePoints.startLoading != TimePoint{} ?
             duration_cast<Duration>(timePoints.endWriting - timePoints.startLoading).count() / 1000.f :
             duration_cast<Duration>(timePoints.endWriting - timePoints.startConvolution).count() / 1000.f

@@ -9,19 +9,19 @@ Timer::Timer(const size_t tasks, const size_t lanes, const bool disableVect)
 }
 
 void Timer::startingProgram() {
-    programStart = std::chrono::steady_clock::now();
+    programStart = Clock::now();
 }
 
 void Timer::startingImageLoading() {
-    imageLoadStart = std::chrono::steady_clock::now();
+    imageLoadStart = Clock::now();
 }
 
 void Timer::startingImageConvolution() {
-    imageConvolutionStart = std::chrono::steady_clock::now();
+    imageConvolutionStart = Clock::now();
 }
 
 void Timer::imageConvolutionEnded() {
-    imageConvolutionEnd = std::chrono::steady_clock::now();
+    imageConvolutionEnd = Clock::now();
 
     convolutionTimes.push_back(
         std::chrono::duration_cast<Duration>(imageConvolutionEnd - imageConvolutionStart).count()
@@ -30,7 +30,7 @@ void Timer::imageConvolutionEnded() {
 }
 
 void Timer::imageWritten() {
-    imageWriteEnd = std::chrono::steady_clock::now();
+    imageWriteEnd = Clock::now();
 
     processingTimes.push_back(
         std::chrono::duration_cast<Duration>(imageWriteEnd - imageLoadStart).count() / conversionFactor
@@ -38,7 +38,7 @@ void Timer::imageWritten() {
 }
 
 void Timer::endingProgram() {
-    programEnd = std::chrono::steady_clock::now();
+    programEnd = Clock::now();
 
     programTime = std::chrono::duration_cast<Duration>(programEnd - programStart).count() / conversionFactor;
 }

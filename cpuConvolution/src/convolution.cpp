@@ -1,7 +1,7 @@
 #include "convolution.h"
 #include <hwy/highway.h>
 
-size_t getCPULanes() {
+size_t getCPUFloatLanes() {
     using namespace hwy::HWY_NAMESPACE;
     using D = ScalableTag<float>;
 

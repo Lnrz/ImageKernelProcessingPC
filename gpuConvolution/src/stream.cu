@@ -12,6 +12,7 @@ void loadImagesToStagingBuffer(float *stagingBuffer, volatile uint32_t *loadFlag
             while(*loadFlag != LoadFlag_Empty) {}
 
             timer.startLoadingImage(i);
+            // used to measure in Nsight Systems how much time it takes to load the images
             nvtx3::scoped_range loadingMarker{ "Loading image data to staging buffer" };
             task.image->load();
             const auto imageSize{ static_cast<size_t>(task.image->getWidth() * task.image->getHeight() * task.image->getChannels()) };
@@ -119,6 +120,7 @@ void writeImagesToDisk(float* floatWriteBuffer, uint8_t* uintWriteBuffer, volati
 
         while (*writeFlag != WriteFlag_ImageWritten) {}
 
+        // used to measure in Nsight Systems how much time it takes to save the images
         nvtx3::scoped_range writingMarker{ "Writing image to disk" };
         floatImageToUIntImage(
             std::ranges::subrange{ floatWriteBuffer, floatWriteBuffer + imageSize },

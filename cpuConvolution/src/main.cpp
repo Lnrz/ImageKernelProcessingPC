@@ -5,6 +5,7 @@
 #include "utilities.h"
 #include "timer.h"
 
+// Struct containing data needed to process the task.
 struct TaskData {
     std::shared_ptr<Image> inImage{};
     PaddingMode padding{ PaddingMode::Invalid };
@@ -16,6 +17,10 @@ struct TaskData {
     std::vector<uint8_t> outUIntImage{};
 };
 
+// Update data for the current task. halfSize is the half size of the current filter.
+//
+// The function assumes that data already stores the data used for the previous task
+// and performs only what is strictly necessary to update it for the current task.
 void updateTaskData(const Task&  task, const int halfSize, TaskData& data) {
     const bool isSameImage{ data.inImage == task.image };
     const bool isSamePaddedImage{ isSameImage && data.padding == task.padding && data.halfSize == halfSize };
@@ -58,6 +63,11 @@ int main(int argc, char* argv[]) {
     const std::filesystem::path outputFolder{ argv[2] };
     const auto filters{ getFilters() };
 
+    // Sort the images to process them faster.
+    // By processing all the tasks for the same image one after another
+    // we do not have to load the image in memory more than once.
+    // Similarly, processing all the tasks of the same image by their padding and size
+    // permits to reuse the calculated padded image when possible.
     std::ranges::sort(tasks,
         [&filters](const Task& t1, const Task& t2) {
             if (t1.image != t2.image) return t1.image->getPath() < t2.image->getPath();
@@ -69,7 +79,7 @@ int main(int argc, char* argv[]) {
 
     TaskData taskData{};
     const auto tasksCount{ tasks.size() };
-    Timer timer{ enableStats? tasksCount : 0, getCPULanes(), disableVect };
+    Timer timer{ enableStats? tasksCount : 0, getCPUFloatLanes(), disableVect };
     if (enableStats) timer.startingProgram();
     for (int i{ 1 }; const auto& task : tasks) {
         const auto& filter{ filters[static_cast<FilterTypeInt>(task.filter)] };

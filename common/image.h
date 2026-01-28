@@ -6,6 +6,7 @@
 #include <numeric>
 #include <iostream>
 
+// Enum of available filters.
 enum class FilterType {
     Invalid = -1,
     BoxBlur3,
@@ -22,10 +23,24 @@ enum class FilterType {
 };
 using FilterTypeInt = std::underlying_type_t<FilterType>;
 
+// Return the FilterType represented by string.
+//
+// If string does not represent any filter print an error and exit the program.
 FilterType getFilterTypeFromString(const std::string& string);
+// Return the string representation of filterType.
+//
+// If filterType is outside the valid values print an error and exit the program.
 std::string getStringFromFilterType(FilterType filterType);
 
+// Struct representing a filter.
+//
+// Holds the filter coefficients, half size and type.
+//
+// The coefficients are stored in row major order.
 struct Filter {
+    // Construct the filter corresponding to type.
+    //
+    // If type is outside the valid values prints an error and exit.
     explicit constexpr Filter(FilterType type)
     : type{ type } {
         switch (type) {
@@ -124,8 +139,7 @@ struct Filter {
                 break;
             }
             default: {
-                std::cerr << "Filter type: " << static_cast<std::underlying_type_t<FilterType>>(type)
-                        << " still not implemented" << std::endl;
+                std::cerr << "Invalid filter type: " << static_cast<FilterTypeInt>(type) << std::endl;
                 exit(-1);
             }
         }
@@ -136,8 +150,12 @@ struct Filter {
     int halfSize{};
 };
 
+// Return a vector with all the available filters.
+//
+// The filters are indexable by their corresponding filter types.
 std::vector<Filter> getFilters();
 
+// Return the number of coefficients in all filters.
 constexpr size_t getFiltersSize() {
     namespace views = std::ranges::views;
 
@@ -152,6 +170,7 @@ constexpr size_t getFiltersSize() {
 };
 
 
+// Enum of available padding modes.
 enum class PaddingMode {
     Invalid = -1,
     None,
@@ -160,11 +179,20 @@ enum class PaddingMode {
 };
 using PaddingModeInt = std::underlying_type_t<PaddingMode>;
 
+// Return the PaddingMode represented by string.
+//
+// If string does not represent any padding mode print an error and exit the program.
 PaddingMode getPaddingModeFromString(const std::string& string);
+// Return the string representation of paddingMode.
+//
+// If paddingMode is outside the valid values print an error and exit the program.
 std::string getStringFromPaddingMode(PaddingMode paddingMode);
 
 
-
+// Class representing an image.
+//
+// It does not load automatically the image data, only its metadata (width, height and channels).
+// Before reading the image you have to load it using the homonymous method.
 class Image {
 public:
     explicit Image(std::filesystem::path path);
@@ -175,20 +203,40 @@ public:
     Image& operator=(const Image&) = delete;
     Image& operator=(Image&&) = delete;
 
+    // Return a pointer to the image data.
+    //
+    // If the image was not loaded it will be a nullptr.
+    //
+    // The data are stored in row major order.
     [[nodiscard]]
     float* data();
+    // Return a const pointer to the image data.
+    //
+    // If the image was not loaded it will be a nullptr.
+    //
+    // The data are stored in row major order.
     [[nodiscard]]
     const float* data() const;
 
+    // Load the image data.
+    //
+    // If an error occurs print a message and exit.
     void load();
+    // Unload the image data.
+    //
+    // Safe to call even if the data are not loaded.
     void unload();
 
+    // Return the path of the image.
     [[nodiscard]]
     std::filesystem::path getPath() const;
+    // Return the width of the image.
     [[nodiscard]]
     int getWidth() const;
+    // Return the height of the image.
     [[nodiscard]]
     int getHeight() const;
+    // Return the number of channels of the image.
     [[nodiscard]]
     int getChannels() const;
 
@@ -199,26 +247,42 @@ private:
     float* imageData{ nullptr };
 };
 
+// Class representing a padded image.
+//
+// If default constructed you need to call the pad method before using it.
 class PaddedImage {
 public:
     PaddedImage() = default;
+    // Construct a PaddedImage by padding image with mode by halfSize.
     PaddedImage(const Image& image, PaddingMode mode, int halfSize);
 
+    // Pad image with mode by halfSize.
     void pad(const Image& image, PaddingMode mode, int halfSize);
 
+    // Return a pointer to the padded image data.
+    //
+    // The data are stored in row major order.
     [[nodiscard]]
     float* data();
+    // Return a const pointer to the padded image data.
+    //
+    // The data are stored in row major order.
     [[nodiscard]]
     const float* data() const;
 
+    // Return the width of the original image.
     [[nodiscard]]
     int getWidth() const;
+    // Return the width of the padded image.
     [[nodiscard]]
     int getPaddedWidth() const;
+    // Return the height of the original image.
     [[nodiscard]]
     int getHeight() const;
+    // Return the height of the padded image.
     [[nodiscard]]
     int getPaddedHeight() const;
+    // Return the number of channels.
     [[nodiscard]]
     int getChannels() const;
 
@@ -231,6 +295,9 @@ private:
     PaddingMode paddingMode{ PaddingMode::Invalid };
 };
 
+// Transform the floating point values in from to unsigned 8bit integer values in to.
+//
+// Perform gamma correction, scaling, clamping and rounding of values.
 template<std::ranges::input_range Ri, std::ranges::output_range<uint8_t> Ro>
 requires std::floating_point<std::ranges::range_value_t<Ri>>
 void floatImageToUIntImage(Ri&& from, Ro&& to) {
@@ -247,6 +314,13 @@ void floatImageToUIntImage(Ri&& from, Ro&& to) {
     );
 }
 
+// Write the image, whose data are found in data, in path.
+//
+// width, height and channels specify the image metadata.
+//
+// The image data must be in row major order.
+//
+// If an error occurs print a message and exit.
 void writeImage(const std::string& path, int width,  int height, int channels, const uint8_t* data);
 
 #endif //IMAGEKERNELPROCESSING_IMAGE_H
